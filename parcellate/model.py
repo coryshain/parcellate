@@ -109,8 +109,7 @@ def parcellate(
     if clustering_kwargs is None:
         clustering_kwargs = dict(
             n_init=N_INIT,
-            init_size=INIT_SIZE,
-            reassignment_ratio=0.1
+            init_size=INIT_SIZE
         )
 
     T0 = time.time()
