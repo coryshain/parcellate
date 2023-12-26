@@ -31,7 +31,7 @@ def get_atlas(atlas):
         key = atlas
         filename = 'LanA_n806.nii'
         with pkg_resources.as_file(pkg_resources.files(resources).joinpath(filename)) as path:
-            val = image.load_img(path)
+            val = image.smooth_img(path, None)
     elif isinstance(atlas, dict):
         keys = list(atlas.keys())
         assert len(keys) == 1, 'If reference_network is provided as a dict, must contain exactly one entry. ' + \
@@ -55,7 +55,7 @@ def parcellate(
         n_networks=2,
         max_networks=None,
         standardize=True,
-        normalize=True,
+        normalize=False,
         detrend = False,
         n_samples=100,
         reference_atlases=None,
@@ -110,7 +110,7 @@ def parcellate(
         clustering_kwargs = dict(
             n_init=N_INIT,
             init_size=INIT_SIZE,
-
+            reassignment_ratio=0.1
         )
 
     T0 = time.time()
@@ -129,13 +129,14 @@ def parcellate(
     _mask = None
     for functional in functionals:
         if isinstance(functional, str):
-            functional = image.load_img(functional)
+            functional = image.smooth_img(functional, None)
         assert 'Nifti1Image' in type(functional).__name__, 'Functional must be either a string path or a Nifti-like' + \
                                                            'image class. Got type %s.' % type(functional)
         data = image.get_data(functional)
         m, s = data.mean(axis=-1), data.std(axis=-1)
         if standardize:
             data = (data - m[..., None]) / s[..., None]
+        functional = image.new_img_like(functional, data)
         __mask = (s > 0) & np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
         if nii_ref is None:
             nii_ref = functional
@@ -173,7 +174,7 @@ def parcellate(
     if mask is None:
         mask = masking.compute_brain_mask(nii_ref, connected=False, opening=False, mask_type='gm')
     else:
-        mask = image.load_img(mask)
+        mask = image.smooth_img(mask, None)
         mask = image.math_img('img > 0.5', img=mask)
     mask = image.get_data(mask)
     mask &= _mask
@@ -192,8 +193,7 @@ def parcellate(
         _val = _val * mask
         val = image.new_img_like(val, _val)
         val.to_filename(os.path.join(output_dir, 'reference_atlas_%s.nii' % key))
-        val = image.get_data(val)
-        mask = mask.astype(bool)
+        val = _val
         val = val[mask]
         val = (val - val.mean()) / val.std()
         reference_atlases[key] = val
@@ -208,9 +208,9 @@ def parcellate(
             _val = _val * mask
             val = image.new_img_like(val, _val)
             val.to_filename(os.path.join(output_dir, 'evaluation_atlas_%s_%s.nii' % (reference_atlas, key)))
-            val = image.get_data(val)
+            val = _val
             val = val[mask]
-            val = (val - val.mean()) / val.std()
+            # val = (val - val.mean()) / val.std()
             _evaluation_atlases[key] = val
 
     for i, functional in enumerate(functionals):
@@ -377,6 +377,14 @@ def parcellate(
             to_print = '    %s network | Consistency score: %.3f | Atlas score: %.3f' % (reference_atlas_name,
                                                                                          r_mean, r)
 
+            if reference_atlas_name in evaluation_atlases:
+                _evaluation_atlases = evaluation_atlases[reference_atlas_name]
+                for evaluation_name in _evaluation_atlases:
+                    evaluation_atlas = _evaluation_atlases[evaluation_name]
+                    r = np.corrcoef(atlas, evaluation_atlas)[0, 1]
+                    data_row['%s_%s_score' % (reference_atlas_name, evaluation_name)] = r
+                    to_print += ' | %s score: %.3f' % (evaluation_name, r)
+
             network = np.zeros(mask.shape, dtype='float32')
             network[mask] = atlas
 
@@ -385,14 +393,6 @@ def parcellate(
 
             network.to_filename(os.path.join(results_dir, '%s_network_prob.nii' % reference_atlas_name))
             network_binary.to_filename(os.path.join(results_dir, '%s_network_binary.nii' % reference_atlas_name))
-
-            if reference_atlas_name in evaluation_atlases:
-                _evaluation_atlases = evaluation_atlases[reference_atlas_name]
-                for evaluation_name in _evaluation_atlases:
-                    evaluation_atlas = _evaluation_atlases[evaluation_name]
-                    r = np.corrcoef(atlas, evaluation_atlas)[0, 1]
-                    data_row['%s_%s_score' % (reference_atlas_name, evaluation_name)] = r
-                    to_print += ' | %s score: %.3f' % (evaluation_name, r)
 
             print(to_print)
 
