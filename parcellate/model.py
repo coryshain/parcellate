@@ -156,11 +156,14 @@ def parcellate(
     else:
         k_score_col = 'inter_network_spcorr'
     for k in range(n_networks, max_networks + 1):
-        try:
-            k_scores.loc[k]
-            is_done = True
-        except KeyError:
+        if k_scores is None:
             is_done = False
+        else:
+            try:
+                k_scores.loc[k]
+                is_done = True
+            except KeyError:
+                is_done = False
 
         if not is_done or overwrite:
             t0 = time.time()
