@@ -1,110 +1,84 @@
 import sys
 import os
-try:
-    import importlib.resources as pkg_resources
-except ImportError:
-    import importlib_resources as pkg_resources
-import resources
+import shutil
 import time
 from datetime import datetime
 import yaml
 import numpy as np
 import pandas as pd
 from scipy import stats, signal, optimize
-try:
-    from sklearnex import patch_sklearn
-    patch_sklearn()
-except ModuleNotFoundError:
-    pass
-from nilearn import image, masking, plotting
+# try:
+#     from sklearnex import patch_sklearn
+#     patch_sklearn()
+# except ModuleNotFoundError:
+#     pass
 from sklearn.preprocessing import label_binarize
 from sklearn.preprocessing import normalize as sk_normalize
 from sklearn.cluster import KMeans, MiniBatchKMeans, BisectingKMeans, OPTICS, DBSCAN, AgglomerativeClustering, Birch
+from nilearn import image
+
+from parcellate.data import ParcellateData
 
 
 N_INIT = 1
 INIT_SIZE = None
-
-
-def get_atlas(atlas):
-    if isinstance(atlas, str) and atlas.lower() == 'language':
-        key = atlas
-        filename = 'LanA_n806.nii'
-        with pkg_resources.as_file(pkg_resources.files(resources).joinpath(filename)) as path:
-            val = image.smooth_img(path, None)
-    elif isinstance(atlas, dict):
-        keys = list(atlas.keys())
-        assert len(keys) == 1, 'If reference_network is provided as a dict, must contain exactly one entry. ' + \
-                               'Got %d entries for reference network %s.' % (len(keys), atlas)
-        key = keys[0]
-        val = atlas[key]
-    else:
-        assert len(atlas) == 2, 'Reference network must be a pair: <name, value>.'
-        atlas, val = atlas
-    if isinstance(val, str):
-        val = image.load_img(val)
-    assert 'Nifti1Image' in type(val).__name__, \
-        'Atlas must be either a string path or a Nifti-like image class. Got type %s.' % type(val)
-
-    return key, val
+SEARCH_RESULTS_SUBDIR = 'search_results'
+FINAL_PARCELLATION_SUBDIR = 'parcellation'
+CONFIG_FILENAME = 'config.yml'
+BASELINE_SCORES_FILENAME = 'baseline_scores.csv'
+K_STR = 'k%03d'
+K_SCORES_FILENAME = 'scores_by_k.csv'
+ENSEMBLE_STR = 'e%03d'
+ENSEMBLE_SCORES_FILENAME = 'scores_by_ensemble_id.csv'
 
 
 def parcellate(
         functionals,
         mask=None,
-        n_networks=2,
-        max_networks=None,
         standardize=True,
         normalize=False,
         detrend = False,
-        n_samples=100,
         reference_atlases=None,
         evaluation_atlases=None,
+        atlas_lower_cutoff=None,
+        atlas_upper_cutoff=None,
+        n_networks=50,
+        max_networks=None,
+        n_samples=100,
+        n_ensemble=1,
         align_to_reference=False,
         clustering_kwargs=None,
         eps=1e-3,
-        atlas_lower_cutoff=None,
-        atlas_upper_cutoff=None,
         output_dir='parcellation_output',
-        dump_config_to_output_dir=True
+        dump_config_to_output_dir=True,
+        overwrite=False
 ):
     kwargs = dict(
         functionals=functionals,
         mask=mask,
-        n_networks=n_networks,
-        max_networks=max_networks,
         standardize=standardize,
         normalize=normalize,
-        detrend = detrend,
-        n_samples=n_samples,
+        detrend=detrend,
         reference_atlases=reference_atlases,
         evaluation_atlases=evaluation_atlases,
+        atlas_lower_cutoff=atlas_lower_cutoff,
+        atlas_upper_cutoff=atlas_upper_cutoff,
+        n_networks=n_networks,
+        max_networks=max_networks,
+        n_samples=n_samples,
+        n_ensemble=n_ensemble,
         align_to_reference=align_to_reference,
         clustering_kwargs=clustering_kwargs,
         eps=eps,
-        atlas_lower_cutoff=atlas_lower_cutoff,
-        atlas_upper_cutoff=atlas_upper_cutoff,
         output_dir=output_dir,
         dump_config_to_output_dir=dump_config_to_output_dir
     )
 
-    if isinstance(functionals, str) or 'Nifti1Image' in type(functionals).__name__:
-        functionals = [functionals]
-    else:
-        try:
-            functionals = list(functionals)
-        except TypeError:
-            raise ValueError('functionals must be a string, a Nifti image, or a list-like of the above. Got %s.' \
-                             % type(functionals).__name__)
-    assert len(functionals), 'At least one functional run must be provided for parcellation.'
+    T0 = time.time()
 
     if max_networks is None:
         max_networks = n_networks
-
-    if reference_atlases is None:
-        reference_atlases = ['language']
-    if evaluation_atlases is None:
-        evaluation_atlases = []
+    assert n_networks <= max_networks, 'n_networks (%d) must be <= max_networks (%d)' % (n_networks, max_networks)
 
     if clustering_kwargs is None:
         clustering_kwargs = dict(
@@ -112,117 +86,42 @@ def parcellate(
             init_size=INIT_SIZE
         )
 
-    T0 = time.time()
+    if n_ensemble is None:
+        n_ensemble = 1
+    try:
+        n_ensemble = int(n_ensemble)
+    except ValueError:
+        raise ValueError('n_ensemble must be type ``int`` or ``None``. Got %s.' % type(n_ensemble))
 
     print('  Loading data')
     t0 = time.time()
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     if dump_config_to_output_dir:
-        with open(os.path.join(output_dir, 'config.yml'), 'w') as f:
+        with open(os.path.join(output_dir, CONFIG_FILENAME), 'w') as f:
             yaml.dump(kwargs, f)
 
-    # Load all data and aggregate the mask
-    _functionals = []
-    nii_ref = None
-    _mask = None
-    for functional in functionals:
-        if isinstance(functional, str):
-            functional = image.smooth_img(functional, None)
-        assert 'Nifti1Image' in type(functional).__name__, 'Functional must be either a string path or a Nifti-like' + \
-                                                           'image class. Got type %s.' % type(functional)
-        data = image.get_data(functional)
-        m, s = data.mean(axis=-1), data.std(axis=-1)
-        if standardize:
-            data = (data - m[..., None]) / s[..., None]
-        functional = image.new_img_like(functional, data)
-        __mask = (s > 0) & np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
-        if nii_ref is None:
-            nii_ref = functional
-        if _mask is None:
-            _mask = __mask
-        else:
-            _mask &= __mask
-        _functionals.append(functional)
-    functionals = _functionals
+    data = ParcellateData(
+        functionals=functionals,
+        mask=mask,
+        standardize=standardize,
+        normalize=normalize,
+        detrend=detrend,
+        reference_atlases=reference_atlases,
+        evaluation_atlases=evaluation_atlases,
+        atlas_lower_cutoff=atlas_lower_cutoff,
+        atlas_upper_cutoff=atlas_upper_cutoff
+    )
 
-    _reference_atlases = {}  # Structure: atlas_name: atlas_nii
-    reference_atlas_names = []
-    for i, reference_atlas in enumerate(reference_atlases):
-        if isinstance(reference_atlases, dict):
-            reference_atlas = {reference_atlas: reference_atlases[reference_atlas]}
-        key, val = get_atlas(reference_atlas)
-        reference_atlas_names.append(key)
-        _reference_atlases[key] = val
-        reference_atlas = image.get_data(val)
-        _mask &= np.isfinite(reference_atlas)
-    reference_atlases = _reference_atlases
+    data.save_atlases(output_dir)
 
-    _evaluation_atlases = {} # Structure: reference_atlas_name: evaluation_atlas_name: atlas_nii
-    for i, reference_atlas in enumerate(evaluation_atlases):
-        if reference_atlas in reference_atlases:
-            for evaluation_atlas in evaluation_atlases[reference_atlas]:
-                if isinstance(evaluation_atlases[reference_atlas], dict):
-                    evaluation_atlas = {evaluation_atlas: evaluation_atlases[reference_atlas][evaluation_atlas]}
-                key, val = get_atlas(evaluation_atlas)
-                if reference_atlas not in _evaluation_atlases:
-                    _evaluation_atlases[reference_atlas] = {}
-                _evaluation_atlases[reference_atlas][key] = val
-    evaluation_atlases = _evaluation_atlases
-
-    if mask is None:
-        mask = masking.compute_brain_mask(nii_ref, connected=False, opening=False, mask_type='gm')
-    else:
-        mask = image.smooth_img(mask, None)
-        mask = image.math_img('img > 0.5', img=mask)
-    mask = image.get_data(mask)
-    mask &= _mask
-    mask = image.new_img_like(nii_ref, mask)
-    mask.to_filename(os.path.join(output_dir, 'mask.nii'))
-    mask = image.get_data(mask).astype(bool)
-
-    v = int(mask.sum())
-
-    # Perform any post-processing and save reference/evaluation images
-    for key in reference_atlases:
-        val = reference_atlases[key]
-        _val = image.get_data(val)
-        if atlas_upper_cutoff is not None or atlas_lower_cutoff is not None:
-            _val = np.clip(_val, atlas_lower_cutoff, atlas_upper_cutoff)
-        _val = _val * mask
-        val = image.new_img_like(val, _val)
-        val.to_filename(os.path.join(output_dir, 'reference_atlas_%s.nii' % key))
-        val = _val
-        val = val[mask]
-        val = (val - val.mean()) / val.std()
-        reference_atlases[key] = val
-
-    for reference_atlas in evaluation_atlases:
-        _evaluation_atlases = evaluation_atlases[reference_atlas]
-        for key in _evaluation_atlases:
-            val = _evaluation_atlases[key]
-            _val = image.get_data(val)
-            if atlas_upper_cutoff is not None or atlas_lower_cutoff is not None:
-                _val = np.clip(_val, atlas_lower_cutoff, atlas_upper_cutoff)
-            _val = _val * mask
-            val = image.new_img_like(val, _val)
-            val.to_filename(os.path.join(output_dir, 'evaluation_atlas_%s_%s.nii' % (reference_atlas, key)))
-            val = _val
-            val = val[mask]
-            # val = (val - val.mean()) / val.std()
-            _evaluation_atlases[key] = val
-
-    for i, functional in enumerate(functionals):
-        functional = image.get_data(functional)[mask]
-        if detrend:
-            functional = signal.detrend(functional)
-        if normalize:
-            functional = sk_normalize(functional, axis=1)
-        functionals[i] = functional
-    R = np.concatenate(functionals, axis=-1)
+    v = data.v
+    reference_atlases = data.reference_atlases
+    evaluation_atlases = data.evaluation_atlases
 
     print('    Time: %ds' % (time.time() - t0))
     print('  N voxels: %d' % v)
+
     baseline_scores = {}
     for reference_atlas_name in reference_atlases:
         reference_atlas = reference_atlases[reference_atlas_name]
@@ -245,207 +144,298 @@ def parcellate(
                     baseline_scores['%s_v_%s' % (name1, name2)] = r
                     print('    %s vs. %s score: %.3f' % (name1, name2, r))
     baseline_scores = pd.DataFrame([baseline_scores])
-    baseline_scores.to_csv(os.path.join(output_dir, 'baseline_scores.csv'), index=False)
+    baseline_scores.to_csv(os.path.join(output_dir, BASELINE_SCORES_FILENAME), index=False)
 
-    best_k = None
-    best_k_score = -np.inf
-    k_scores_path = os.path.join(output_dir, 'k_scores.csv')
+    k_scores_path = os.path.join(output_dir, K_SCORES_FILENAME)
     if os.path.exists(k_scores_path):
         k_scores = pd.read_csv(k_scores_path, index_col='index')
     else:
         k_scores = None
+    if len(reference_atlases):
+        k_score_col = 'reference_atlas_score'
+    else:
+        k_score_col = 'inter_network_spcorr'
     for k in range(n_networks, max_networks + 1):
-        print('  Parcellating (k = %d)' % k)
-        results_dir = os.path.join(output_dir, 'k%02d' % k)
-        if not os.path.exists(results_dir):
-            os.makedirs(results_dir)
-        t0 = time.time()
+        try:
+            k_scores.loc[k]
+            is_done = True
+        except KeyError:
+            is_done = False
 
-        # Sample parcellations by clustering the voxel timecourses
-        parcellations = np.zeros((n_samples, k, v))  # Shape: <n_parcellations, n_networks, n_voxels>
-        parcellation_inertias = np.full((n_samples,), np.inf)
-        for i in range(n_samples):
-            sys.stdout.write('\r    Sampling parcellation %d/%d' % (i + 1, n_samples))
-            sys.stdout.flush()
-            m = MiniBatchKMeans(n_clusters=k, **clustering_kwargs)
-            parcellation = m.fit_predict(R)
-            parcellation = label_binarize(parcellation, classes=np.arange(k)).astype('float32').T
-            if k == 2:  # label_binarize collapses 2-class labels, so expand them
-                parcellation = np.concatenate([parcellation, 1-parcellation], axis=0)
-            parcellation_inertia = m.inertia_
+        if not is_done or overwrite:
+            t0 = time.time()
 
-            parcellations[i] = parcellation
-            parcellation_inertias[i] = parcellation_inertia
-        print()
+            data_row = parcellate_k(
+                k,
+                data,
+                n_samples=n_samples,
+                align_to_reference=align_to_reference,
+                clustering_kwargs=clustering_kwargs,
+                eps=eps,
+                ensemble_id=0,
+                output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
+            )
 
-        # Normalize to facilitate spcorr computation
-        parcellations_z = (parcellations - parcellations.mean(axis=-1, keepdims=True)) / \
-                          parcellations.std(axis=-1, keepdims=True)
+            if k_scores is None:
+                k_scores = pd.DataFrame(columns=list(data_row.keys()))
+            k_scores.loc[k] = data_row
+            k_scores.reset_index().to_csv(k_scores_path, index=False)
 
-        # Networks in each parcellation are not yet aligned.
-        # Now we align them, first with respect to any reference networks, and then with respect to the parcellation
-        # with the lowest inertia.
+            print('    Time: %ds' % (time.time() - t0))
 
-        n_reference_atlases = len(reference_atlas_names)
-        if align_to_reference:
-            # Extract any target networks by comparison to the corresponding reference atlas
-            reference_parcellations = np.zeros((n_samples, n_reference_atlases, v))
-            for j, reference_atlas in enumerate(reference_atlas_names):
-                # Find and extract the network with the highest correlation to the reference in each parcellation
-                n_networks = parcellations.shape[1]
-                reference_atlas = reference_atlases[reference_atlas]
-                reference_scores = np.clip(np.dot(parcellations_z, reference_atlas) / v, -1, 1)  # Shape:
-                                                                                                 # <n_parcellations,
-                                                                                                 # n_networks>
-                reference_alignments = np.argmax(reference_scores, axis=-1)
-                parcellation = parcellations[np.arange(n_samples), reference_alignments]
-                reference_parcellations[:, j] = parcellation
+    best_k_ix = np.argmax(k_scores[k_score_col].values)
+    best_k_row = k_scores.iloc[best_k_ix]
+    best_k, best_k_score = best_k_row['k'], best_k_row[k_score_col]
 
-                # Remove the extracted network from each parcellation
-                ix = reference_alignments[..., None] != np.arange(n_networks)[None, ...]
-                parcellations = parcellations[ix].reshape(n_samples, n_networks - 1, v)
-                parcellations_z = parcellations_z[ix].reshape(n_samples, n_networks - 1, v)
+    print('Best k: %d, score: %0.3f' % (best_k, best_k_score))
+
+    k = best_k
+
+    if n_ensemble and n_ensemble > 1:
+        ensemble_scores_path = os.path.join(output_dir, ENSEMBLE_SCORES_FILENAME)
+        if os.path.exists(ensemble_scores_path):
+            ensemble_scores = pd.read_csv(ensemble_scores_path, index_col='index')
+            zeroth_row = k_scores[k_scores['k'] == k].iloc[0]
+            zeroth_row['ensemble_id'] = 0
+            ensemble_scores.loc[0] = zeroth_row
         else:
-            reference_parcellations = None
+            ensemble_scores = pd.DataFrame(k_scores[k_scores['k'] == k])
+            ensemble_scores['ensemble_id'] = [0]
+            ensemble_scores = ensemble_scores.reset_index(drop=True)
+        for ensemble_id in range(1, n_ensemble):
+            try:
+                ensemble_scores.loc[ensemble_id]
+                is_done = True
+            except KeyError:
+                is_done = False
 
-        # Align all remaining networks of each parcellation to the best parcellation by maximizing the linear sum
-        # assignment (correlation score)
+            if not is_done or overwrite:
+                print('  Sampling ensemble component %d' % ensemble_id)
+                t0 = time.time()
 
-        # Z-score the parcellations
-        n_other_networks = parcellations.shape[1]
-        # Find the reference parcellation (best clustering score)
-        ref_ix = np.argmin(parcellation_inertias)
-        # Compute correlations between each network of the reference parcellation and each network of every other
-        # parcellation
-        parcellations_spcorr = np.matmul(
-            parcellations_z[ref_ix:ref_ix + 1, ...],
-            np.transpose(parcellations_z, axes=(0, 2, 1))
-        ) / v  # Shape: <n_parcellations - n_reference_atlases - 1, n_networks, n_networks>
-        parcellations_spcorr = np.clip(parcellations_spcorr, -1, 1)
-        # Align parcellations to the reference by finding the alignment that maximizes spcorr
-        other_parcellations = np.zeros((n_samples, n_other_networks, v))
-        for i in range(n_samples):
-            if i == ref_ix:
-                # Reference parcellation is already aligned with itself, just return it
-                parcellation = parcellations[ref_ix]
-            else:
-                # Get the correlation matrix between reference and current parcellation (n networks x n networks)
-                scores = parcellations_spcorr[i]
-                # Find optimal alignment
-                ix_l, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
-                # Get alignment scores for each network pair
-                # Ensure sorting to match current network permutation of reference parcellation
-                sort_ix = np.argsort(ix_l)
-                ix_l, ix_r = ix_l[sort_ix], ix_r[sort_ix]
-                # Align current parcelation to reference
-                parcellation = parcellations[i, ix_r]
-            other_parcellations[i] = parcellation
-        # Combine reference and other parcellations
-        if align_to_reference:
-            parcellations = np.concatenate([
-                reference_parcellations,
-                other_parcellations
-            ], axis=1)
-        else:
-            parcellations = other_parcellations
-        parcellations_z = (parcellations - parcellations.mean(axis=-1, keepdims=True)) / \
-                          parcellations.std(axis=-1, keepdims=True)
-        # Now parcellations are aligned
+                data_row = parcellate_k(
+                    k,
+                    data,
+                    n_samples=n_samples,
+                    align_to_reference=align_to_reference,
+                    clustering_kwargs=clustering_kwargs,
+                    eps=eps,
+                    ensemble_id=ensemble_id,
+                    output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
+                )
+                data_row['ensemble_id'] = ensemble_id
+                ensemble_scores.loc[ensemble_id] = data_row
+                ensemble_scores.reset_index().to_csv(ensemble_scores_path, index=False)
 
-        data_row = {'k': k}
+                print('    Time: %ds' % (time.time() - t0))
 
-        reference_atlas_scores = np.full((n_reference_atlases,), -np.inf)
-        for j, reference_atlas_name in enumerate(reference_atlas_names):
-            reference_atlas = reference_atlases[reference_atlas_name]
-            if align_to_reference:
-                atlases = reference_parcellations[:, j]
-            else:
-                scores = np.clip(np.dot(parcellations_z, reference_atlas) / v, -1, 1)
-                reference_ix = np.argmax(scores, axis=-1)
-                atlases = parcellations[np.arange(n_samples), reference_ix]
+        best_ensemble_ix = np.argmax(ensemble_scores[k_score_col].values)
+        best_ensemble_row = ensemble_scores.iloc[best_ensemble_ix]
+        best_ensemble, best_ensemble_score = best_ensemble_row['ensemble_id'], best_ensemble_row[k_score_col]
 
-            r_all = np.tril(np.corrcoef(atlases), -1)
-            r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
-            data_row['%s_consistency_score' % reference_atlas_name] = r_mean
+        print('Best ensemble component: %d, score: %0.3f' % (best_ensemble, best_ensemble_score))
+        selected_subdir = (K_STR % k) + '_' + (ENSEMBLE_STR % best_ensemble)
+    else:
+        selected_subdir = (K_STR % k) + '_' + (ENSEMBLE_STR % 0)
 
-            atlas = atlases.mean(axis=00)
-            r = np.corrcoef(atlas, reference_atlas)[0, 1]
-            data_row['%s_atlas_score' % reference_atlas_name] = r
-            reference_atlas_scores[j] = r
+    final_dir_path = os.path.join(output_dir, FINAL_PARCELLATION_SUBDIR)
+    if os.path.exists(final_dir_path):
+        shutil.rmtree(final_dir_path)
 
-            to_print = '    %s network | Consistency score: %.3f | Atlas score: %.3f' % (reference_atlas_name,
-                                                                                         r_mean, r)
+    shutil.copytree(
+        os.path.join(output_dir, SEARCH_RESULTS_SUBDIR, selected_subdir),
+        final_dir_path
+    )
 
-            if reference_atlas_name in evaluation_atlases:
-                _evaluation_atlases = evaluation_atlases[reference_atlas_name]
-                for evaluation_name in _evaluation_atlases:
-                    evaluation_atlas = _evaluation_atlases[evaluation_name]
-                    r = np.corrcoef(atlas, evaluation_atlas)[0, 1]
-                    data_row['%s_%s_score' % (reference_atlas_name, evaluation_name)] = r
-                    to_print += ' | %s score: %.3f' % (evaluation_name, r)
-
-            network = np.zeros(mask.shape, dtype='float32')
-            network[mask] = atlas
-
-            network = image.new_img_like(nii_ref, network)
-            network_binary = image.math_img("(img > 0.5).astype('uint8')", img=network)
-
-            network.to_filename(os.path.join(results_dir, '%s_network_prob.nii' % reference_atlas_name))
-            network_binary.to_filename(os.path.join(results_dir, '%s_network_binary.nii' % reference_atlas_name))
-
-            print(to_print)
-
-        for j in range(n_other_networks):
-            atlases = other_parcellations[:, j]
-
-            r_all = np.tril(np.corrcoef(atlases), -1)
-            r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
-            data_row['%03d_network_consistency_score' % (j + 1)] = r_mean
-
-            atlas = atlases.mean(0)
-            network = np.zeros(mask.shape, dtype='float32')
-            network[mask] = atlas
-
-            network = image.new_img_like(nii_ref, network)
-            network_binary = image.math_img("(img > 0.5).astype('uint8')", img=network)
-
-            network.to_filename(os.path.join(results_dir, '%03d_network_prob.nii' % (j + 1)))
-            network_binary.to_filename(os.path.join(results_dir, '%03d_network_binary.nii' % (j + 1)))
-
-        _parcellations = parcellations.mean(axis=0)
-        spcorr_networks = np.tril(np.corrcoef(_parcellations), -1)
-        # Average with Fisher's method
-        spcorr_networks = np.tanh(np.nanmean(np.arctanh(spcorr_networks * (1 - 2 * eps) + eps)))
-        print('    Mean spcorr between networks: %.3f' % spcorr_networks)
-
-        spcorr_parcellations = np.clip(
-            np.matmul(parcellations_z, np.transpose(parcellations_z, axes=(0, 2, 1))) / v,
-            -1,
-            1
-        )
-        # Average with Fisher's method
-        spcorr_parcellations = np.tanh(np.nanmean(np.arctanh(spcorr_parcellations * (1 - 2 * eps) + eps)))
-        print('    Mean spcorr between parcellations: %.3f' % spcorr_parcellations)
-
-        r = reference_atlas_scores
-        k_score = np.tanh(np.arctanh(r * (1 - 2 * eps) + eps).mean())
-        if k_score > best_k_score:
-            best_k = k
-            best_k_score = k_score
-
-        data_row['inter_network_spcorr'] = spcorr_networks
-        data_row['inter_parcellation_spcorr'] = spcorr_parcellations
-        data_row['reference_atlas_score'] = k_score
-        data_row['timestamp'] = datetime.now()
-
-        if k_scores is None:
-            k_scores = pd.DataFrame(columns = list(data_row.keys()))
-        k_scores.loc[k] = data_row
-        k_scores.reset_index().to_csv(k_scores_path, index=False)
-
-        print('    Time: %ds' % (time.time() - t0))
-
-    print('Best k: %d, spcorr: %0.3f' % (best_k, best_k_score))
     print('Total time elapsed: %ds' % (time.time() - T0))
     print('Done')
 
+
+def parcellate_k(
+        k,
+        data,
+        n_samples=100,
+        align_to_reference=False,
+        clustering_kwargs=None,
+        eps=1e-3,
+        output_dir='parcellation_output',
+        ensemble_id=None,
+        suffix=''
+):
+    if ensemble_id is None:
+        ensemble_id = 0
+    print('  Parcellating (k = %d)' % k)
+    k_str = (K_STR % k) + '_' + (ENSEMBLE_STR % ensemble_id)
+    results_dir = os.path.join(output_dir, k_str)
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+
+    v = data.v
+    timecourses = data.timecourses
+    reference_atlases = data.reference_atlases
+    reference_atlas_names = data.reference_atlas_names
+    evaluation_atlases = data.evaluation_atlases
+
+    # Sample parcellations by clustering the voxel timecourses
+    parcellations = np.zeros((n_samples, k, v))  # Shape: <n_parcellations, n_networks, n_voxels>
+    parcellation_inertias = np.full((n_samples,), np.inf)
+    for i in range(n_samples):
+        sys.stdout.write('\r    Sampling parcellation %d/%d' % (i + 1, n_samples))
+        sys.stdout.flush()
+        m = MiniBatchKMeans(n_clusters=k, **clustering_kwargs)
+        parcellation = m.fit_predict(timecourses)
+        parcellation = label_binarize(parcellation, classes=np.arange(k)).astype('float32').T
+        if k == 2:  # label_binarize collapses 2-class labels, so expand them
+            parcellation = np.concatenate([parcellation, 1 - parcellation], axis=0)
+        parcellation_inertia = m.inertia_
+
+        parcellations[i] = parcellation
+        parcellation_inertias[i] = parcellation_inertia
+    print()
+
+    # Normalize to facilitate spcorr computation
+    parcellations_z = (parcellations - parcellations.mean(axis=-1, keepdims=True)) / \
+                      parcellations.std(axis=-1, keepdims=True)
+
+    # Networks in each parcellation are not yet aligned.
+    # Now we align them, first with respect to any reference networks, and then with respect to the parcellation
+    # with the lowest inertia.
+
+    n_reference_atlases = len(reference_atlas_names)
+    if align_to_reference:
+        # Extract any target networks by comparison to the corresponding reference atlas
+        reference_parcellations = np.zeros((n_samples, n_reference_atlases, v))
+        for j, reference_atlas in enumerate(reference_atlas_names):
+            # Find and extract the network with the highest correlation to the reference in each parcellation
+            n_networks = parcellations.shape[1]
+            reference_atlas = reference_atlases[reference_atlas]
+            reference_scores = np.clip(np.dot(parcellations_z, reference_atlas) / v, -1, 1)  # Shape:
+            # <n_parcellations,
+            # n_networks>
+            reference_alignments = np.argmax(reference_scores, axis=-1)
+            parcellation = parcellations[np.arange(n_samples), reference_alignments]
+            reference_parcellations[:, j] = parcellation
+
+            # Remove the extracted network from each parcellation
+            ix = reference_alignments[..., None] != np.arange(n_networks)[None, ...]
+            parcellations = parcellations[ix].reshape(n_samples, n_networks - 1, v)
+            parcellations_z = parcellations_z[ix].reshape(n_samples, n_networks - 1, v)
+    else:
+        reference_parcellations = None
+
+    # Align all remaining networks of each parcellation to the best parcellation by maximizing the linear sum
+    # assignment (correlation score)
+
+    # Z-score the parcellations
+    n_other_networks = parcellations.shape[1]
+    # Find the reference parcellation (best clustering score)
+    ref_ix = np.argmin(parcellation_inertias)
+    # Compute correlations between each network of the reference parcellation and each network of every other
+    # parcellation
+    parcellations_spcorr = np.matmul(
+        parcellations_z[ref_ix:ref_ix + 1, ...],
+        np.transpose(parcellations_z, axes=(0, 2, 1))
+    ) / v  # Shape: <n_parcellations - n_reference_atlases - 1, n_networks, n_networks>
+    parcellations_spcorr = np.clip(parcellations_spcorr, -1, 1)
+    # Align parcellations to the reference by finding the alignment that maximizes spcorr
+    other_parcellations = np.zeros((n_samples, n_other_networks, v))
+    for i in range(n_samples):
+        if i == ref_ix:
+            # Reference parcellation is already aligned with itself, just return it
+            parcellation = parcellations[ref_ix]
+        else:
+            # Get the correlation matrix between reference and current parcellation (n networks x n networks)
+            scores = parcellations_spcorr[i]
+            # Find optimal alignment
+            ix_l, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
+            # Get alignment scores for each network pair
+            # Ensure sorting to match current network permutation of reference parcellation
+            sort_ix = np.argsort(ix_l)
+            ix_l, ix_r = ix_l[sort_ix], ix_r[sort_ix]
+            # Align current parcelation to reference
+            parcellation = parcellations[i, ix_r]
+        other_parcellations[i] = parcellation
+    # Combine reference and other parcellations
+    if align_to_reference:
+        parcellations = np.concatenate([
+            reference_parcellations,
+            other_parcellations
+        ], axis=1)
+    else:
+        parcellations = other_parcellations
+    parcellations_z = (parcellations - parcellations.mean(axis=-1, keepdims=True)) / \
+                      parcellations.std(axis=-1, keepdims=True)
+    # Now parcellations are aligned
+
+    data_row = {'k': k}
+
+    reference_atlas_scores = np.full((n_reference_atlases,), -np.inf)
+    for j, reference_atlas_name in enumerate(reference_atlas_names):
+        reference_atlas = reference_atlases[reference_atlas_name]
+        if align_to_reference:
+            atlases = reference_parcellations[:, j]
+        else:
+            scores = np.clip(np.dot(parcellations_z, reference_atlas) / v, -1, 1)
+            reference_ix = np.argmax(scores, axis=-1)
+            atlases = parcellations[np.arange(n_samples), reference_ix]
+
+        r_all = np.tril(np.corrcoef(atlases), -1)
+        r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
+        data_row['%s_consistency_score' % reference_atlas_name] = r_mean
+
+        atlas = atlases.mean(axis=0)
+        r = np.corrcoef(atlas, reference_atlas)[0, 1]
+        data_row['%s_atlas_score' % reference_atlas_name] = r
+        reference_atlas_scores[j] = r
+
+        to_print = '    %s network | Consistency score: %.3f | Atlas score: %.3f' % (reference_atlas_name,
+                                                                                     r_mean, r)
+
+        if reference_atlas_name in evaluation_atlases:
+            _evaluation_atlases = evaluation_atlases[reference_atlas_name]
+            for evaluation_name in _evaluation_atlases:
+                evaluation_atlas = _evaluation_atlases[evaluation_name]
+                r = np.corrcoef(atlas, evaluation_atlas)[0, 1]
+                data_row['%s_%s_score' % (reference_atlas_name, evaluation_name)] = r
+                to_print += ' | %s score: %.3f' % (evaluation_name, r)
+
+        network = data.unflatten(atlas)
+        network.to_filename(os.path.join(results_dir, '%s_network%s.nii' % (reference_atlas_name, suffix)))
+
+        print(to_print)
+
+    for j in range(n_other_networks):
+        atlases = other_parcellations[:, j]
+
+        r_all = np.tril(np.corrcoef(atlases), -1)
+        r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
+        data_row['%03d_network_consistency_score' % (j + 1)] = r_mean
+        atlas = atlases.mean(axis=0)
+
+        network = data.unflatten(atlas)
+        network.to_filename(os.path.join(results_dir, '%03d_network%s.nii' % (j + 1, suffix)))
+
+    _parcellations = parcellations.mean(axis=0)
+    spcorr_networks = np.tril(np.corrcoef(_parcellations), -1)
+    # Average with Fisher's method
+    spcorr_networks = np.tanh(np.nanmean(np.arctanh(spcorr_networks * (1 - 2 * eps) + eps)))
+    print('    Mean spcorr between networks: %.3f' % spcorr_networks)
+
+    spcorr_parcellations = np.clip(
+        np.matmul(parcellations_z, np.transpose(parcellations_z, axes=(0, 2, 1))) / v,
+        -1,
+        1
+    )
+    # Average with Fisher's method
+    spcorr_parcellations = np.tanh(np.nanmean(np.arctanh(spcorr_parcellations * (1 - 2 * eps) + eps)))
+    print('    Mean spcorr between parcellations: %.3f' % spcorr_parcellations)
+
+    r = reference_atlas_scores
+    reference_atlas_score = np.tanh(np.arctanh(r * (1 - 2 * eps) + eps).mean())
+
+    data_row['inter_network_spcorr'] = spcorr_networks
+    data_row['inter_parcellation_spcorr'] = spcorr_parcellations
+    data_row['reference_atlas_score'] = reference_atlas_score
+    data_row['timestamp'] = datetime.now()
+
+    return data_row
