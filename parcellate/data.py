@@ -40,6 +40,9 @@ class ParcellateData:
             standardize=True,
             normalize=False,
             detrend = False,
+            tr=2,
+            low_pass=None,
+            high_pass=None,
             reference_atlases=None,
             evaluation_atlases=None,
             atlas_lower_cutoff=None,
@@ -117,8 +120,14 @@ class ParcellateData:
             nii_ref = mask
             mask = image.math_img('img > 0.5', img=mask)
         mask = image.get_data(mask)
-        mask = mask > 0.5
+        mask = (mask > 0.5) & _mask
+
+        # Set key variables now so they can be used in instance methods during initialization
         self.mask = mask
+        self.tr = tr
+        self.low_pass = low_pass
+        self.high_pass = high_pass
+
         nii_ref_shape = mask.shape
 
         v = int(mask.sum())
@@ -127,8 +136,8 @@ class ParcellateData:
         for key in reference_atlases:
             val = reference_atlases[key]
             val = self.flatten(val)
-            if atlas_upper_cutoff is not None or atlas_lower_cutoff is not None:
-                _val = np.clip(val, atlas_lower_cutoff, atlas_upper_cutoff)
+            if atlas_lower_cutoff is not None or atlas_upper_cutoff is not None:
+                val = np.clip(val, atlas_lower_cutoff, atlas_upper_cutoff)
             val = self.standardize(val)
             reference_atlases[key] = val
 
@@ -137,8 +146,8 @@ class ParcellateData:
             for key in _evaluation_atlases:
                 val = _evaluation_atlases[key]
                 val = self.flatten(val)
-                if atlas_upper_cutoff is not None or atlas_lower_cutoff is not None:
-                    _val = np.clip(val, atlas_lower_cutoff, atlas_upper_cutoff)
+                if atlas_lower_cutoff is not None or atlas_upper_cutoff is not None:
+                    val = np.clip(val, atlas_lower_cutoff, atlas_upper_cutoff)
                 val = self.standardize(val)
                 _evaluation_atlases[key] = val
 
@@ -148,6 +157,7 @@ class ParcellateData:
                 functional = self.detrend(functional)
             if normalize:
                 functional = sk_normalize(functional, axis=1)
+            functional = self.bandpass(functional)  # self.bandpass() is a no-op if no bandpassing parameters are set
             functionals[i] = functional
 
         self.nii_ref = nii_ref
@@ -164,6 +174,41 @@ class ParcellateData:
 
     def detrend(self, arr):
         return signal.detrend(arr, axis=-1)
+
+    def get_bandpass_filter(self, lower=None, upper=None, order=5):
+        assert lower is not None or upper is not None, 'At least one of the lower (hi-pass) or upper (lo-pass) ' + \
+                                                       'parameters must be provided.'
+        fs = 1/self.tr
+        Wn = []
+        btype = None
+        if lower is not None:
+            Wn.append(lower)
+            btype = 'highpass'
+        if upper is not None:
+            Wn.append(upper)
+            if btype is None:
+                btype = 'lowpass'
+            else:
+                btype = 'bandpass'
+        if len(Wn) == 1:
+            Wn = Wn[0]
+        return signal.butter(order, Wn, fs=fs, btype=btype)
+
+    def bandpass(self, arr, lower=None, upper=None, order=5):
+        if lower is None:
+            lower = self.high_pass
+        if upper is None:
+            upper = self.low_pass
+        if lower is None and upper is None:
+            return arr
+        b, a = self.get_bandpass_filter(lower, upper, order=order)
+        out = signal.lfilter(b, a, arr, axis=-1)
+        return out
+
+    def minmax_normalize(self, arr, eps=1e-8):
+        arr -= arr.min()
+        arr /= arr.max() + eps
+        return arr
 
     def flatten(self, arr):
         arr = image.get_data(arr)

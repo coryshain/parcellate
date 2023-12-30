@@ -14,7 +14,7 @@ from scipy import stats, signal, optimize
 #     pass
 from sklearn.preprocessing import label_binarize
 from sklearn.preprocessing import normalize as sk_normalize
-from sklearn.cluster import KMeans, MiniBatchKMeans, BisectingKMeans, OPTICS, DBSCAN, AgglomerativeClustering, Birch
+from sklearn.cluster import MiniBatchKMeans
 from nilearn import image
 
 from parcellate.data import ParcellateData
@@ -38,6 +38,9 @@ def parcellate(
         standardize=True,
         normalize=False,
         detrend = False,
+        tr=2,
+        low_pass=None,
+        high_pass=None,
         reference_atlases=None,
         evaluation_atlases=None,
         atlas_lower_cutoff=None,
@@ -49,6 +52,7 @@ def parcellate(
         align_to_reference=False,
         clustering_kwargs=None,
         eps=1e-3,
+        minmax=True,
         output_dir='parcellation_output',
         dump_config_to_output_dir=True,
         overwrite=False
@@ -59,6 +63,9 @@ def parcellate(
         standardize=standardize,
         normalize=normalize,
         detrend=detrend,
+        tr=tr,
+        low_pass=low_pass,
+        high_pass=high_pass,
         reference_atlases=reference_atlases,
         evaluation_atlases=evaluation_atlases,
         atlas_lower_cutoff=atlas_lower_cutoff,
@@ -70,6 +77,7 @@ def parcellate(
         align_to_reference=align_to_reference,
         clustering_kwargs=clustering_kwargs,
         eps=eps,
+        minmax=minmax,
         output_dir=output_dir,
         dump_config_to_output_dir=dump_config_to_output_dir
     )
@@ -107,6 +115,9 @@ def parcellate(
         standardize=standardize,
         normalize=normalize,
         detrend=detrend,
+        tr=tr,
+        low_pass=low_pass,
+        high_pass=high_pass,
         reference_atlases=reference_atlases,
         evaluation_atlases=evaluation_atlases,
         atlas_lower_cutoff=atlas_lower_cutoff,
@@ -175,6 +186,7 @@ def parcellate(
                 align_to_reference=align_to_reference,
                 clustering_kwargs=clustering_kwargs,
                 eps=eps,
+                minmax=minmax,
                 ensemble_id=0,
                 output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
             )
@@ -223,6 +235,7 @@ def parcellate(
                     align_to_reference=align_to_reference,
                     clustering_kwargs=clustering_kwargs,
                     eps=eps,
+                    minmax=minmax,
                     ensemble_id=ensemble_id,
                     output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
                 )
@@ -261,8 +274,9 @@ def parcellate_k(
         align_to_reference=False,
         clustering_kwargs=None,
         eps=1e-3,
-        output_dir='parcellation_output',
+        minmax=True,
         ensemble_id=None,
+        output_dir='parcellation_output',
         suffix=''
 ):
     if ensemble_id is None:
@@ -387,6 +401,8 @@ def parcellate_k(
         data_row['%s_consistency_score' % reference_atlas_name] = r_mean
 
         atlas = atlases.mean(axis=0)
+        if minmax:
+            atlas = data.minmax_normalize(atlas)
         r = np.corrcoef(atlas, reference_atlas)[0, 1]
         data_row['%s_atlas_score' % reference_atlas_name] = r
         reference_atlas_scores[j] = r
@@ -414,6 +430,8 @@ def parcellate_k(
         r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
         data_row['%03d_network_consistency_score' % (j + 1)] = r_mean
         atlas = atlases.mean(axis=0)
+        if minmax:
+            atlas = data.minmax_normalize(atlas)
 
         network = data.unflatten(atlas)
         network.to_filename(os.path.join(results_dir, '%03d_network%s.nii' % (j + 1, suffix)))
