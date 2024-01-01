@@ -47,6 +47,7 @@ class ParcellateData:
             evaluation_atlases=None,
             atlas_lower_cutoff=None,
             atlas_upper_cutoff=None,
+            compress_outputs=True
     ):
         if isinstance(functionals, str) or 'Nifti1Image' in type(functionals).__name__:
             functionals = [functionals]
@@ -168,6 +169,7 @@ class ParcellateData:
         self.reference_atlas_names = reference_atlas_names
         self.v = v
         self.timecourses = np.concatenate(self.functionals, axis=-1)
+        self.compress_outputs = compress_outputs
 
     def standardize(self, arr):
         return (arr - arr.mean(axis=-1, keepdims=True)) / arr.std(axis=-1, keepdims=True)
@@ -221,19 +223,25 @@ class ParcellateData:
 
         return out
 
-    def save_atlases(self, output_dir):
+    def save_atlases(self, output_dir, compress_outputs=None):
+        if compress_outputs is None:
+            compress_outputs = self.compress_outputs
+        if compress_outputs:
+            suffix = '.nii.gz'
+        else:
+            suffix = '.nii'
         mask = image.new_img_like(self.nii_ref, self.mask)
-        mask.to_filename(os.path.join(output_dir, 'mask.nii'))
+        mask.to_filename(os.path.join(output_dir, 'mask%s' % suffix))
 
         # Perform any post-processing and save reference/evaluation images
         reference_atlases = self.reference_atlases
         for key in reference_atlases:
             val = self.unflatten(reference_atlases[key])
-            val.to_filename(os.path.join(output_dir, 'reference_atlas_%s.nii' % key))
+            val.to_filename(os.path.join(output_dir, 'reference_atlas_%s%s' % (key, suffix)))
 
         evaluation_atlases = self.evaluation_atlases
         for reference_atlas in evaluation_atlases:
             _evaluation_atlases = evaluation_atlases[reference_atlas]
             for key in _evaluation_atlases:
                 val = self.unflatten(_evaluation_atlases[key])
-                val.to_filename(os.path.join(output_dir, 'evaluation_atlas_%s_%s.nii' % (reference_atlas, key)))
+                val.to_filename(os.path.join(output_dir, 'evaluation_atlas_%s_%s%s' % (reference_atlas, key, suffix)))

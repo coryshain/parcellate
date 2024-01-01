@@ -55,6 +55,7 @@ def parcellate(
         minmax=True,
         output_dir='parcellation_output',
         dump_config_to_output_dir=True,
+        compress_outputs=True,
         overwrite=False
 ):
     kwargs = dict(
@@ -79,7 +80,8 @@ def parcellate(
         eps=eps,
         minmax=minmax,
         output_dir=output_dir,
-        dump_config_to_output_dir=dump_config_to_output_dir
+        dump_config_to_output_dir=dump_config_to_output_dir,
+        compress_outputs=compress_outputs
     )
 
     T0 = time.time()
@@ -121,7 +123,8 @@ def parcellate(
         reference_atlases=reference_atlases,
         evaluation_atlases=evaluation_atlases,
         atlas_lower_cutoff=atlas_lower_cutoff,
-        atlas_upper_cutoff=atlas_upper_cutoff
+        atlas_upper_cutoff=atlas_upper_cutoff,
+        compress_outputs=compress_outputs
     )
 
     data.save_atlases(output_dir)
@@ -188,6 +191,7 @@ def parcellate(
                 eps=eps,
                 minmax=minmax,
                 ensemble_id=0,
+                compress_outputs=compress_outputs,
                 output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
             )
 
@@ -237,6 +241,7 @@ def parcellate(
                     eps=eps,
                     minmax=minmax,
                     ensemble_id=ensemble_id,
+                    compress_outputs=compress_outputs,
                     output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
                 )
                 data_row['ensemble_id'] = ensemble_id
@@ -276,11 +281,15 @@ def parcellate_k(
         eps=1e-3,
         minmax=True,
         ensemble_id=None,
-        output_dir='parcellation_output',
-        suffix=''
+        compress_outputs=True,
+        output_dir='parcellation_output'
 ):
     if ensemble_id is None:
         ensemble_id = 0
+    if compress_outputs:
+        suffix = '.nii.gz'
+    else:
+        suffix = '.nii'
     print('  Parcellating (k = %d)' % k)
     k_str = (K_STR % k) + '_' + (ENSEMBLE_STR % ensemble_id)
     results_dir = os.path.join(output_dir, k_str)
@@ -419,7 +428,7 @@ def parcellate_k(
                 to_print += ' | %s score: %.3f' % (evaluation_name, r)
 
         network = data.unflatten(atlas)
-        network.to_filename(os.path.join(results_dir, '%s_network%s.nii' % (reference_atlas_name, suffix)))
+        network.to_filename(os.path.join(results_dir, '%s_network%s' % (reference_atlas_name, suffix)))
 
         print(to_print)
 
@@ -434,7 +443,7 @@ def parcellate_k(
             atlas = data.minmax_normalize(atlas)
 
         network = data.unflatten(atlas)
-        network.to_filename(os.path.join(results_dir, '%03d_network%s.nii' % (j + 1, suffix)))
+        network.to_filename(os.path.join(results_dir, '%03d_network%s' % (j + 1, suffix)))
 
     _parcellations = parcellations.mean(axis=0)
     spcorr_networks = np.tril(np.corrcoef(_parcellations), -1)
