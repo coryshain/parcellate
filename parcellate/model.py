@@ -56,6 +56,7 @@ def parcellate(
         output_dir='parcellation_output',
         dump_config_to_output_dir=True,
         compress_outputs=True,
+        uint8_outputs=True,
         overwrite=False
 ):
     kwargs = dict(
@@ -81,7 +82,8 @@ def parcellate(
         minmax=minmax,
         output_dir=output_dir,
         dump_config_to_output_dir=dump_config_to_output_dir,
-        compress_outputs=compress_outputs
+        compress_outputs=compress_outputs,
+        uint8_outputs=uint8_outputs
     )
 
     T0 = time.time()
@@ -192,6 +194,7 @@ def parcellate(
                 minmax=minmax,
                 ensemble_id=0,
                 compress_outputs=compress_outputs,
+                uint8_outputs=uint8_outputs,
                 output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
             )
 
@@ -242,6 +245,7 @@ def parcellate(
                     minmax=minmax,
                     ensemble_id=ensemble_id,
                     compress_outputs=compress_outputs,
+                    uint8_outputs=uint8_outputs,
                     output_dir=os.path.join(output_dir, SEARCH_RESULTS_SUBDIR)
                 )
                 data_row['ensemble_id'] = ensemble_id
@@ -282,6 +286,7 @@ def parcellate_k(
         minmax=True,
         ensemble_id=None,
         compress_outputs=True,
+        uint8_outputs=True,
         output_dir='parcellation_output'
 ):
     if ensemble_id is None:
@@ -427,13 +432,16 @@ def parcellate_k(
                 data_row['%s_%s_score' % (reference_atlas_name, evaluation_name)] = r
                 to_print += ' | %s score: %.3f' % (evaluation_name, r)
 
+        if uint8_outputs:
+            atlas = np.clip(0, 255, atlas * 256).astype('uint8')
         network = data.unflatten(atlas)
         network.to_filename(os.path.join(results_dir, '%s_network%s' % (reference_atlas_name, suffix)))
 
         print(to_print)
 
-    for j in range(n_other_networks):
-        atlases = other_parcellations[:, j]
+    all_networks = []
+    for j in range(k):
+        atlases = parcellations[:, j]
 
         r_all = np.tril(np.corrcoef(atlases), -1)
         r_mean = np.tanh(np.arctanh(r_all * (1 - 2 * eps) + eps).mean())
@@ -442,8 +450,17 @@ def parcellate_k(
         if minmax:
             atlas = data.minmax_normalize(atlas)
 
+        if uint8_outputs:
+            atlas = np.clip(0, 255, atlas * 256).astype('uint8')
         network = data.unflatten(atlas)
-        network.to_filename(os.path.join(results_dir, '%03d_network%s' % (j + 1, suffix)))
+        all_networks.append(network)
+    # all_networks is guaranteed to be non-empty because k must be > 0 in order for clustering to have run
+    if uint8_outputs:
+        dtype = np.uint8
+    else:
+        dtype = all_networks[0].dtype
+    all_networks = image.concat_imgs(all_networks, dtype=dtype)
+    all_networks.to_filename(os.path.join(results_dir, 'parcellation%s' % suffix))
 
     _parcellations = parcellations.mean(axis=0)
     spcorr_networks = np.tril(np.corrcoef(_parcellations), -1)

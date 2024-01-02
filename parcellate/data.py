@@ -217,7 +217,7 @@ class ParcellateData:
         return arr[self.mask]
 
     def unflatten(self, arr):
-        out = np.zeros(self.nii_ref_shape, dtype='float32')
+        out = np.zeros(self.nii_ref_shape, dtype=arr.dtype)
         out[self.mask] = arr
         out = image.new_img_like(self.nii_ref, out)
 
