@@ -8,7 +8,7 @@ except ImportError:
 import argparse
 
 from parcellate.cfg import *
-from parcellate.util import CFG_FILENAME, join
+from parcellate.util import CFG_FILENAME, process_action_ids, join
 from parcellate.model import run, run_grid
 
 if __name__ == '__main__':
@@ -29,17 +29,17 @@ if __name__ == '__main__':
         aggregation steps outside of the grid search inner loop. Defaults to ``main``. \
         '''
     ))
-    argparser.add_argument('-a', '--alignment_id', default='main', help=textwrap.dedent('''\
-        ID (name) of alignment configuration to use for any required alignment steps. Defaults to ``main``. \
+    argparser.add_argument('-a', '--alignment_id', default=None, help=textwrap.dedent('''\
+        ID (name) of alignment configuration to use for any required alignment steps. If ``None``, inferred. \
         '''
     ))
-    argparser.add_argument('-e', '--evaluation_id', default='main', help=textwrap.dedent('''\
-        ID (name) of evaluation configuration to use for any required evaluation steps. Defaults to ``main``.\
+    argparser.add_argument('-e', '--evaluation_id', default=None, help=textwrap.dedent('''\
+        ID (name) of evaluation configuration to use for any required evaluation steps. If ``None``, inferred.\
         '''
     ))
-    argparser.add_argument('-g', '--aggregation_id', default='main', help=textwrap.dedent('''\
+    argparser.add_argument('-g', '--aggregation_id', default=None, help=textwrap.dedent('''\
         ID (name) of aggregation configuration to use for any required aggregation steps. Used only for grid searches 
-        (ignored for individual runs). Defaults to ``main``.\
+        (ignored for individual runs). If ``None``, inferred.\
         '''
     ))
     argparser.add_argument('-n', '--nogrid', action='store_true', help=textwrap.dedent('''\
@@ -55,18 +55,38 @@ if __name__ == '__main__':
         '''
     ))
     args = argparser.parse_args()
-    mode = set(args.mode)
-    cfg = get_cfg(args.config_path)
+    config_path = args.config_path
+    mode = args.mode
+    parcellation_id = args.parcellation_id
+    alignment_id = args.alignment_id
+    evaluation_id = args.evaluation_id
+    aggregation_id = args.aggregation_id
+    nogrid = args.nogrid
+    overwrite = args.overwrite
+
+    mode = set(mode)
+    cfg = get_cfg(config_path)
+    parcellation_id, alignment_id, evaluation_id, aggregation_id = process_action_ids(
+        cfg,
+        parcellation_id=parcellation_id,
+        alignment_id=alignment_id,
+        evaluation_id=evaluation_id,
+        aggregation_id=aggregation_id
+    )
+
+    print(parcellation_id, alignment_id, evaluation_id, aggregation_id)
+    exit()
 
     parcellate_kwargs = align_kwargs = evaluate_kwargs = aggregate_kwargs = refit_kwargs = None
     if mode & {'parcellate', 'all'}:
         parcellate_kwargs = get_parcellate_kwargs(cfg)
     if mode & {'align', 'all'}:
-        align_kwargs = get_align_kwargs(cfg, args.alignment_id)
+        align_kwargs = get_align_kwargs(cfg, alignment_id)
     if mode & {'evaluate', 'all'}:
-        evaluate_kwargs = get_evaluate_kwargs(cfg, args.evaluation_id)
+        evaluate_kwargs = get_evaluate_kwargs(cfg, evaluation_id)
+        assert evaluate_kwargs['alignment_id'] == alignment_id
     if mode & {'aggregate', 'all'}:
-        aggregate_kwargs = get_aggregate_kwargs(cfg, args.evaluation_id)
+        aggregate_kwargs = get_aggregate_kwargs(cfg, evaluation_id)
     if mode & {'refit', 'all'}:
         refit_kwargs = get_refit_kwargs(cfg)
 
@@ -80,7 +100,7 @@ if __name__ == '__main__':
     with open(join(output_dir, CFG_FILENAME), 'w') as f:
         yaml.dump(cfg, f)
 
-    if 'grid' in cfg and not args.nogrid:
+    if 'grid' in cfg and not nogrid:
         grid_params = get_grid_params(cfg)
         run_grid(
             parcellate_kwargs=parcellate_kwargs,
@@ -89,12 +109,12 @@ if __name__ == '__main__':
             aggregate_kwargs=aggregate_kwargs,
             refit_kwargs=refit_kwargs,
             grid_params=grid_params,
-            parcellation_id=args.parcellation_id,
-            alignment_id=args.alignment_id,
-            evaluation_id=args.evaluation_id,
-            aggregation_id=args.aggregation_id,
+            parcellation_id=parcellation_id,
+            alignment_id=alignment_id,
+            evaluation_id=evaluation_id,
+            aggregation_id=aggregation_id,
             output_dir=output_dir,
-            overwrite=args.overwrite
+            overwrite=overwrite
         )
     elif (
             parcellate_kwargs is not None or
@@ -105,11 +125,11 @@ if __name__ == '__main__':
             parcellate_kwargs=parcellate_kwargs,
             align_kwargs=align_kwargs,
             evaluate_kwargs=evaluate_kwargs,
-            parcellation_id=args.parcellation_id,
-            alignment_id=args.alignment_id,
-            evaluation_id=args.evaluation_id,
+            parcellation_id=parcellation_id,
+            alignment_id=alignment_id,
+            evaluation_id=evaluation_id,
             output_dir=output_dir,
-            overwrite=args.overwrite
+            overwrite=overwrite
         )
     else:
         print('Nothing to do. Terminating.')

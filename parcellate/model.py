@@ -614,6 +614,7 @@ def _pretty_print_evaluation_row(
 
     return to_print
 
+
 def _get_atlas_score_from_df(df_scores, subnetwork_id=None, eps=1e-3):
     reference_atlas_names = df_scores.atlas.unique().tolist()
     parcel_names = df_scores.parcel

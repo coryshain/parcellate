@@ -39,6 +39,61 @@ def process_grid_params(grid_params):
         yield row
 
 
+def get_action_id(
+        cfg,
+        id_type,
+        action_id=None
+):
+    _cfg = cfg.get(id_type, {})
+    if action_id is None:
+        keys = list(_cfg.keys())
+        if not keys:
+            action_id = 'main'
+        else:
+            action_id = keys[0]
+    else:
+        assert not _cfg or action_id in _cfg, '%s ID %s not found in config' % (id_type, action_id)
+
+    return action_id
+
+def process_action_ids(
+        cfg,
+        parcellation_id=None,
+        alignment_id=None,
+        evaluation_id=None,
+        aggregation_id=None
+):
+    # Aggregate
+    aggregation_id = get_action_id(cfg, 'aggregate', aggregation_id)
+
+    # Evaluate
+    _evaluation_id = cfg.get('aggregate', {}).get(aggregation_id, {}).get('evaluation_id', None)
+    if _evaluation_id:
+        assert evaluation_id is None or _evaluation_id == evaluation_id, (
+                'Mismatch between requested ``evaluation_id`` (%s) and the one required by aggregation_id %s (%s).' %
+                (evaluation_id, aggregation_id, _evaluation_id)
+        )
+        evaluation_id = _evaluation_id
+    else:
+        evaluation_id = get_action_id(cfg, 'evaluate', evaluation_id)
+
+    # Align
+    _alignment_id = cfg.get('evaluate', {}).get(evaluation_id, {}).get('alignment_id', None)
+    if _alignment_id:
+        assert alignment_id is None or alignment_id == _alignment_id, (
+                'Mismatch between requested ``alignment_id`` (%s) and the one required by evaluation_id %s (%s).' %
+                (alignment_id, evaluation_id, _alignment_id)
+        )
+        alignment_id = _alignment_id
+    else:
+        alignment_id = get_action_id(cfg, 'align', alignment_id)
+
+    # Parcellate
+    parcellation_id = get_action_id(cfg, 'parcellation', parcellation_id)
+
+    return parcellation_id, alignment_id, evaluation_id, aggregation_id
+
+
 def candidate_name_sort_key(candidate_name):
     trailing_digits = TRAILING_DIGITS.match(candidate_name).group(1)
     if trailing_digits:

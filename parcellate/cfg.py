@@ -40,6 +40,8 @@ def get_evaluate_kwargs(cfg, evaluation_id):
         'compress_outputs': cfg.get('compress_outputs', True)
     }
     kwargs.update(cfg['evaluate'][evaluation_id])
+    if 'alignment_id' not in kwargs:
+        kwargs['alignment_id'] = 'main'
 
     return kwargs
 
@@ -51,6 +53,8 @@ def get_aggregate_kwargs(cfg, aggregation_id):
         'compress_outputs': cfg.get('compress_outputs', True)
     }
     kwargs.update(cfg['aggregate'][aggregation_id])
+    if 'evaluation_id' not in kwargs:
+        kwargs['evaluation_id'] = 'main'
 
     return kwargs
 
