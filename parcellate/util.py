@@ -39,61 +39,6 @@ def process_grid_params(grid_params):
         yield row
 
 
-def get_action_id(
-        cfg,
-        id_type,
-        action_id=None
-):
-    _cfg = cfg.get(id_type, {})
-    if action_id is None:
-        keys = list(_cfg.keys())
-        if not keys:
-            action_id = 'main'
-        else:
-            action_id = keys[0]
-    else:
-        assert not _cfg or action_id in _cfg, '%s ID %s not found in config' % (id_type, action_id)
-
-    return action_id
-
-def process_action_ids(
-        cfg,
-        parcellation_id=None,
-        alignment_id=None,
-        evaluation_id=None,
-        aggregation_id=None
-):
-    # Aggregate
-    aggregation_id = get_action_id(cfg, 'aggregate', aggregation_id)
-
-    # Evaluate
-    _evaluation_id = cfg.get('aggregate', {}).get(aggregation_id, {}).get('evaluation_id', None)
-    if _evaluation_id:
-        assert evaluation_id is None or _evaluation_id == evaluation_id, (
-                'Mismatch between requested ``evaluation_id`` (%s) and the one required by aggregation_id %s (%s).' %
-                (evaluation_id, aggregation_id, _evaluation_id)
-        )
-        evaluation_id = _evaluation_id
-    else:
-        evaluation_id = get_action_id(cfg, 'evaluate', evaluation_id)
-
-    # Align
-    _alignment_id = cfg.get('evaluate', {}).get(evaluation_id, {}).get('alignment_id', None)
-    if _alignment_id:
-        assert alignment_id is None or alignment_id == _alignment_id, (
-                'Mismatch between requested ``alignment_id`` (%s) and the one required by evaluation_id %s (%s).' %
-                (alignment_id, evaluation_id, _alignment_id)
-        )
-        alignment_id = _alignment_id
-    else:
-        alignment_id = get_action_id(cfg, 'align', alignment_id)
-
-    # Parcellate
-    parcellation_id = get_action_id(cfg, 'parcellation', parcellation_id)
-
-    return parcellation_id, alignment_id, evaluation_id, aggregation_id
-
-
 def candidate_name_sort_key(candidate_name):
     trailing_digits = TRAILING_DIGITS.match(candidate_name).group(1)
     if trailing_digits:
@@ -132,62 +77,35 @@ def get_grid_id(grid_setting):
     return grid_id
 
 
-def get_parcellation_path(output_dir, compressed=True):
-    suffix = get_suffix(compressed)
-    return join(output_dir, '%s%s' % (SAMPLE_FILENAME_BASE, suffix))
+def get_path(output_dir, path_type, action_type, action_id, compressed=True):
+    assert action_type in PATHS, 'Unrecognized action_type %s' % action_type
+    assert path_type in PATHS[action_type], 'Unrecognized path_type %s for action_type %s' % (path_type, action_type)
+    path = PATHS[action_type][path_type]
+    if path.endswith('%s'):
+        path = path % get_suffix(compressed)
+
+    if path_type == 'subdir':
+        suffix = join(path, action_id)
+    else:
+        prefix = PATHS[action_type]['subdir']
+        suffix = join(prefix, action_id, path)
+
+    path = join(output_dir, suffix)
+
+    return path
 
 
-def get_alignment_path(output_dir, alignment_id, compressed=True):
-    suffix = get_suffix(compressed)
-    alignment_subdir = '%s_%s' % (ALIGNMENT_SUBDIR, alignment_id)
-    if basename(output_dir) != alignment_subdir:
-        output_dir = join(output_dir, alignment_subdir)
+def get_mtime(output_dir, action_type, action_id, compressed=True):
+    path = get_path(
+        output_dir,
+        'output',
+        action_type,
+        action_id,
+        compressed=compressed,
+    )
 
-    return join(output_dir, '%s%s' % (ALIGNMENT_FILENAME_BASE, suffix))\
-
-
-def get_evaluation_path(output_dir, evaluation_id):
-    evaluation_subdir = '%s_%s' % (EVALUATION_SUBDIR, evaluation_id)
-
-    return join(output_dir, evaluation_subdir, '%s' % EVALUATION_FILENAME)
-
-
-def get_aggregation_path(output_dir, aggregation_id):
-    aggregation_subdir = '%s_%s' % (AGGREGATION_SUBDIR, aggregation_id)
-    if basename(output_dir) != aggregation_subdir:
-        output_dir = join(output_dir, aggregation_subdir)
-
-    return join(output_dir, AGGREGATION_FILENAME)
-
-
-def get_parcellation_mtime(output_dir, compressed=True):
-    parcellation_path = get_parcellation_path(output_dir, compressed=compressed)
-    if os.path.exists(parcellation_path):
-        return os.path.getmtime(parcellation_path)
-
-    return None
-
-
-def get_alignment_mtime(output_dir, alignment_id, compressed=True):
-    alignment_path = get_alignment_path(output_dir, alignment_id, compressed=compressed)
-    if os.path.exists(alignment_path):
-        return os.path.getmtime(alignment_path)
-
-    return None
-
-
-def get_evaluation_mtime(output_dir, evaluation_id):
-    evaluation_path = get_evaluation_path(output_dir, evaluation_id)
-    if os.path.exists(evaluation_path):
-        return os.path.getmtime(evaluation_path)
-
-    return None
-
-
-def get_aggregation_mtime(output_dir, aggregation_id):
-    aggregation_path = get_aggregation_path(output_dir, aggregation_id)
-    if os.path.exists(aggregation_path):
-        return os.path.getmtime(aggregation_path)
+    if os.path.exists(path):
+        return os.path.getmtime(path)
 
     return None
 
@@ -200,68 +118,51 @@ def get_max_mtime(*mtimes):
     return None
 
 
+def get_action_id(action_type, action_sequence):
+    action_id = None
+    for dep in action_sequence:
+        if dep['type'] == action_type:
+            return dep['id']
+    return action_id
+
+
 def is_stale(target_mtime, dep_mtime):
     return target_mtime and dep_mtime and target_mtime < dep_mtime
 
 
-def check_parcellation(output_dir, compressed=True):
-    mtime = get_parcellation_mtime(output_dir, compressed=compressed)
+def check_deps(
+        output_dir,
+        action_sequence,
+        compressed=True
+):
+    if not len(action_sequence):
+        return -1, False
+    action = action_sequence[0]
+    action_type, action_id = action['type'], action['id']
+    mtime = get_mtime(output_dir, action_type, action_id, compressed=compressed)
     exists = mtime is not None
-
-    return mtime, exists
-
-
-def check_alignment(output_dir, alignment_id, compressed=True):
-    alignment_mtime = get_alignment_mtime(output_dir, alignment_id, compressed=compressed)
-    exists = alignment_mtime is not None
-    parcellation_mtime = get_parcellation_mtime(output_dir, compressed=compressed)
-
-    if is_stale(alignment_mtime, parcellation_mtime):
-        return 1, exists
-
-    mtime = get_max_mtime(alignment_mtime, parcellation_mtime)
-
-    return mtime, exists
-
-
-def check_evaluation(output_dir, alignment_id, evaluation_id, compressed=True):
-    evaluation_mtime = get_evaluation_mtime(output_dir, evaluation_id)
-    exists = evaluation_mtime is not None
-    alignment_max_mtime, _ = check_alignment(output_dir, alignment_id, compressed=compressed)
-    if alignment_max_mtime == 1:
-        return 1, exists
-
-    if is_stale(evaluation_mtime, alignment_max_mtime):
-        return 1, exists
-
-    mtime = get_max_mtime(evaluation_mtime, alignment_max_mtime)
-
-    return mtime, exists
-
-
-def check_aggregation(output_dir, alignment_id, evaluation_id, aggregation_id, grid_params, compressed=True):
-    aggregation_mtime = get_aggregation_mtime(output_dir, aggregation_id)
-    exists = aggregation_mtime is not None
-    grid_settings = process_grid_params(grid_params)
-    mtime = -np.inf
-    for grid_setting in grid_settings:
-        grid_id = get_grid_id(grid_setting)
-        _output_dir = join(output_dir, GRID_SUBDIR, grid_id)
-        evaluation_max_mtime, _ = check_evaluation(
-            _output_dir,
-            alignment_id,
-            evaluation_id,
-            compressed=compressed
-        )
-        if evaluation_max_mtime == 1:
+    if action_type == 'aggregate':
+        grid_dir = get_path(output_dir, 'subdir', 'grid', '')
+        dep_mtime = None
+        for grid_id in os.listdir(grid_dir):
+            _output_dir = join(grid_dir, grid_id)
+            _dep_mtime, _ = check_deps(
+                _output_dir,
+                action_sequence[1:],
+                compressed=compressed
+            )
+            if _dep_mtime == 1:
+                return 1, exists
+            if is_stale(mtime, _dep_mtime):
+                return 1, exists
+            dep_mtime = get_max_mtime(dep_mtime, _dep_mtime)
+    else:
+        dep_mtime, _ = check_deps(output_dir, action_sequence[1:], compressed=True)
+        if dep_mtime == 1:
+            return 1, exists
+        if is_stale(mtime, dep_mtime):
             return 1, exists
 
-        if is_stale(aggregation_mtime, evaluation_max_mtime):
-            return 1, exists
-
-        _mtime = get_max_mtime(aggregation_mtime, evaluation_max_mtime)
-        if _mtime:
-            mtime = max(mtime, _mtime)
+    mtime = get_max_mtime(mtime, dep_mtime)
 
     return mtime, exists
-

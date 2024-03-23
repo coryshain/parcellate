@@ -1,78 +1,32 @@
 import yaml
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
+import copy
+
+from parcellate.constants import ACTION_VERB_TO_NOUN
 
 
 def get_cfg(path):
     with open(path, 'r') as f:
-        cfg = yaml.load(f, Loader=Loader)
+        cfg = yaml.safe_load(f)
 
     return cfg
 
-def get_parcellate_kwargs(cfg):
-    assert 'parcellate' in cfg, 'get_parcellate_kwargs requires a ``parcellate`` field in cfg.'
-    kwargs = {
-        'output_dir': cfg.get('output_dir', None),
-        'compress_outputs': cfg.get('compress_outputs', True)
-    }
-    kwargs.update(cfg['parcellate'])
-
-    return kwargs
-
-
-def get_align_kwargs(cfg, alignment_id):
-    assert 'align' in cfg, 'get_align_kwargs requires an ``align`` field in cfg.'
-    kwargs = {
-        'output_dir': cfg.get('output_dir', None),
-        'compress_outputs': cfg.get('compress_outputs', True)
-    }
-    kwargs.update(cfg['align'][alignment_id])
-
-    return kwargs
-
-
-def get_evaluate_kwargs(cfg, evaluation_id):
-    assert 'evaluate' in cfg, 'get_evaluate_kwargs requires an ``evaluate`` field in cfg.'
-    kwargs = {
-        'output_dir': cfg.get('output_dir', None),
-        'compress_outputs': cfg.get('compress_outputs', True)
-    }
-    kwargs.update(cfg['evaluate'][evaluation_id])
-    if 'alignment_id' not in kwargs:
-        kwargs['alignment_id'] = 'main'
-
-    return kwargs
-
-
-def get_aggregate_kwargs(cfg, aggregation_id):
-    assert 'aggregate' in cfg, 'get_aggregate_kwargs requires an ``aggregate`` field in cfg.'
-    kwargs = {
-        'output_dir': cfg.get('output_dir', None),
-        'compress_outputs': cfg.get('compress_outputs', True)
-    }
-    kwargs.update(cfg['aggregate'][aggregation_id])
-    if 'evaluation_id' not in kwargs:
-        kwargs['evaluation_id'] = 'main'
-
-    return kwargs
-
-
-def get_refit_kwargs(cfg):
-    assert 'refit' in cfg, 'get_refit_kwargs requires a ``refit`` field in cfg.'
-    kwargs = cfg['refit']
-    if kwargs == True:  # Have to check against True literal because kwargs can also be a dict
-        kwargs = {}
+def get_kwargs(cfg, action_type, action_id):
+    if action_id is not None and action_type in cfg:
+        kwargs = copy.deepcopy(cfg[action_type][action_id])
+        kwargs.update({'%s_id' % ACTION_VERB_TO_NOUN[action_type]: action_id})
+    else:
+        kwargs = None
 
     return kwargs
 
 
 def get_grid_params(cfg):
     if 'grid' in cfg:
-        grid_params = cfg['grid']
+        grid_params = copy.deepcopy(cfg['grid'])
     else:
         grid_params = None
+
+    assert not 'id' in grid_params, 'grid_params contained key "id", which is a reserved keyword'
 
     return grid_params
 
@@ -100,3 +54,70 @@ def get_val_from_kwargs(
                 break
 
     return val
+
+
+def get_action_sequence(
+        cfg,
+        action_type,
+        action_id,
+        deps=None
+):
+    if deps is None:
+        deps = []
+    if action_id is None:
+        action_id = list(cfg[action_type].keys())[0]
+    assert action_id in cfg[action_type], 'No entry %s found in %s' % (action_id, action_type)
+    dep = {'type': action_type, 'id': action_id}
+    deps.append(dep)
+
+    if action_type == 'sample':
+        return deps
+    if action_type == 'align':
+        action_id = cfg[action_type][action_id].get('sample_id', None)
+        action_type = 'sample'
+    elif action_type == 'evaluate':
+        action_id = cfg[action_type][action_id].get('alignment_id', None)
+        action_type = 'align'
+    elif action_type == 'aggregate':
+        if 'evaluation_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('evaluation_id', None)
+            action_type = 'evaluate'
+        elif 'alignment_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('alignment_id', None)
+            action_type = 'align'
+        elif 'evaluate' in cfg:
+            action_type = 'evaluate'
+            action_id = None
+        else:
+            action_type = 'align'
+            action_id = None
+    elif action_type == 'parcellate':
+        if 'aggregation_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('aggregation_id', None)
+            action_type = 'aggregate'
+        elif 'evaluation_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('evaluation_id', None)
+            action_type = 'evaluate'
+        elif 'alignment_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('alignment_id', None)
+            action_type = 'align'
+        elif 'aggregate' in cfg:
+            action_type = 'aggregate'
+            action_id = None
+        elif 'evaluate' in cfg:
+            action_type = 'evaluate'
+            action_id = None
+        else:
+            action_type = 'align'
+            action_id = None
+    else:
+        raise ValueError('Unrecognized action_type %s' % action_type)
+
+    deps = get_action_sequence(
+        cfg,
+        action_type,
+        action_id,
+        deps
+    )
+
+    return deps

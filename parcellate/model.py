@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import copy
 import time
 import yaml
 import numpy as np
@@ -21,10 +22,11 @@ from parcellate.util import *
 ######################################
 
 
-def parcellate(
+def sample(
         output_dir,
         n_networks,
         functional_paths,
+        sample_id=None,
         mask_path=None,
         standardize=True,
         normalize=False,
@@ -38,9 +40,11 @@ def parcellate(
         indent=0,
         **kwargs  # Ignored
 ):
+    assert isinstance(sample_id, str), 'sample_id must be given as a str'
+
     t0 = time.time()
 
-    print('%sParcellating' % (' ' * (indent * 2)))
+    print('%sSampling (sample_id=%s)' % (' ' * (indent * 2), sample_id))
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
@@ -49,6 +53,7 @@ def parcellate(
         output_dir=output_dir,
         n_networks=n_networks,
         functional_paths=functional_paths,
+        sample_id=sample_id,
         mask_path=mask_path,
         standardize=standardize,
         normalize=normalize,
@@ -61,18 +66,20 @@ def parcellate(
         compress_outputs=compress_outputs
     )
 
+    sample_dir = get_path(output_dir, 'subdir', 'sample', sample_id)
+    if not os.path.exists(sample_dir):
+        os.makedirs(sample_dir)
+    kwargs_path = get_path(output_dir, 'kwargs', 'sample', sample_id)
+    with open(kwargs_path, 'w') as f:
+        yaml.safe_dump(kwargs, f, sort_keys=False)
+    output_path = get_path(output_dir, 'output', 'sample', sample_id, compressed=compress_outputs)
+
     if clustering_kwargs is None:
         clustering_kwargs = dict(
             n_init=N_INIT,
             init_size=INIT_SIZE
         )
         kwargs['clustering_kwargs'] = clustering_kwargs
-
-    suffix = get_suffix(compress_outputs)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    with open(join(output_dir, PARCELLATE_CFG_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
 
     input_data = InputData(
         functional_paths=functional_paths,
@@ -92,27 +99,28 @@ def parcellate(
         dtype=np.uint16
     else:
         dtype=np.uint8
-    parcellations = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_parcellations, n_networks, n_voxels>
+    samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_samples, n_networks, n_voxels>
     for i in range(n_samples):
-        sys.stdout.write('\r%sSampling parcellation %d/%d' % (' ' * (indent * 2), i + 1, n_samples))
+        sys.stdout.write('\r%sSample %d/%d' % (' ' * (indent * 2), i + 1, n_samples))
         sys.stdout.flush()
         m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
-        parcellation = m.fit_predict(timecourses)
-        parcellations[:, i] = parcellation
+        _sample = m.fit_predict(timecourses)
+        samples[:, i] = _sample
     sys.stdout.write('\n')
     sys.stdout.flush()
-    parcellations = input_data.unflatten(parcellations)
-    parcellations.to_filename(join(output_dir, '%s%s' % (SAMPLE_FILENAME_BASE, suffix)))
+    samples = input_data.unflatten(samples)
+    samples.to_filename(output_path)
 
-    print('%sParcellation time: %ds' % (' ' * (indent * 2), time.time() - t0))
+    print('%sSampling time: %ds' % (' ' * (indent * 2), time.time() - t0))
 
-    return parcellations
+    return samples
 
 
 def align(
         output_dir,
         reference_atlases,
-        alignment_id='main',
+        alignment_id=None,
+        sample_id=None,
         max_subnetworks=None,
         minmax_normalize=True,
         use_poibin=True,
@@ -121,6 +129,9 @@ def align(
         indent=0,
         **kwargs  # Ignored
 ):
+    assert isinstance(alignment_id, str), 'alignment_id must be given as a str'
+    assert isinstance(sample_id, str), 'sample_id must be given as a str'
+
     t0 = time.time()
 
     print('%sAligning (alignment_id=%s)' % (' ' * (indent * 2), alignment_id))
@@ -131,6 +142,7 @@ def align(
     kwargs = dict(
         reference_atlases=reference_atlases,
         alignment_id=alignment_id,
+        sample_id=sample_id,
         max_subnetworks=max_subnetworks,
         minmax_normalize=minmax_normalize,
         use_poibin=use_poibin,
@@ -138,19 +150,17 @@ def align(
         compress_outputs=compress_outputs,
         output_dir=output_dir,
     )
-    parcellations_path = join(output_dir, '%s.nii' % SAMPLE_FILENAME_BASE)
-    if not os.path.exists(parcellations_path):
-        parcellations_path = join(output_dir, '%s.nii.gz' % SAMPLE_FILENAME_BASE)
-    assert os.path.exists(parcellations_path), 'Parcellations file %s not found' % parcellations_path
 
-
-    alignment_subdir = '%s_%s' % (ALIGNMENT_SUBDIR, alignment_id)
-    if basename(output_dir) != alignment_subdir:
-        output_dir = join(output_dir, alignment_subdir)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    with open(join(output_dir, ALIGN_CFG_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
+    alignment_dir = get_path(output_dir, 'subdir', 'align', alignment_id)
+    if not os.path.exists(alignment_dir):
+        os.makedirs(alignment_dir)
+    kwargs_path = get_path(output_dir, 'kwargs', 'align', alignment_id)
+    with open(kwargs_path, 'w') as f:
+        yaml.safe_dump(kwargs, f, sort_keys=False)
+    output_path = get_path(output_dir, 'output', 'align', alignment_id, compressed=compress_outputs)
+    evaluation_path = get_path(output_dir, 'evaluation', 'align', alignment_id)
+    sample_path = get_path(output_dir, 'output', 'sample', sample_id, compressed=compress_outputs)
+    assert os.path.exists(sample_path), 'Sample file %s not found' % sample_path
 
     reference_data = ReferenceData(
         reference_atlases=reference_atlases,
@@ -159,14 +169,14 @@ def align(
     reference_atlas_names = reference_data.reference_atlas_names
     reference_atlases = reference_data.reference_atlases
     v = reference_data.v
-    reference_data.save_atlases(output_dir)
+    reference_data.save_atlases(alignment_dir)
 
-    parcellations = reference_data.flatten(image.smooth_img(parcellations_path, None))
-    n_networks = int(parcellations.max() + 1)
+    samples = reference_data.flatten(image.smooth_img(sample_path, None))
+    n_networks = int(samples.max() + 1)
     if not max_subnetworks:
         max_subnetworks = n_networks
-    n_samples = parcellations.shape[-1]
-    parcellations = parcellations.T  # Shape: <n_samples, v>, values are integer network indices
+    n_samples = samples.shape[-1]
+    samples = samples.T  # Shape: <n_samples, v>, values are integer network indices
 
     # We do a sparse alignment with slow python loops to avoid OOM for large n_samples or n_networks
 
@@ -178,7 +188,7 @@ def align(
     )
     _reference_atlases_z = standardize_array(_reference_atlases)
     for si in range(n_samples):
-        s = parcellations[si][None, ...] == np.arange(n_networks)[..., None]
+        s = samples[si][None, ...] == np.arange(n_networks)[..., None]
         s_z = standardize_array(s)
         scores = np.dot(
             s_z,
@@ -192,7 +202,7 @@ def align(
     # Select reference sample
     ref_ix = np.argmax(sample_scores)
     # Align to reference
-    parcellation = align_samples(parcellations, ref_ix, w=sample_scores)
+    parcellation = align_samples(samples, ref_ix, w=sample_scores)
 
     # Find candidate network(s) for each reference
     n_reference_atlases = len(reference_atlas_names)
@@ -259,33 +269,35 @@ def align(
             else:
                 suffix = '_sub%d' % s
             suffix += get_suffix(compress_outputs)
-            candidate.to_filename(join(output_dir, '%s%s' % (reference_atlas_name, suffix)))
+            candidate.to_filename(join(alignment_dir, '%s%s' % (reference_atlas_name, suffix)))
 
         candidates[reference_atlas_name] = candidate_list
 
     results = pd.DataFrame(results)
-    results.to_csv(join(output_dir, ALIGNMENT_EVALUATION_FILENAME), index=False)
+    results.to_csv(evaluation_path, index=False)
 
-    suffix = get_suffix(compress_outputs)
     _parcellation = reference_data.unflatten(parcellation.T)
-    _parcellation.to_filename(join(output_dir, '%s%s' % (ALIGNMENT_FILENAME_BASE, suffix)))
+    _parcellation.to_filename(output_path)
 
     print('%sAlignment time: %ds' % (' ' * (indent * 2), time.time() - t0))
 
-    return candidates, parcellation
+    return parcellation
 
 
 def evaluate(
         output_dir,
         evaluation_atlases,
-        evaluation_id='main',
-        alignment_id='main',
+        evaluation_id=None,
+        alignment_id=None,
         average_first=False,
         use_poibin=True,
         compress_outputs=True,
         indent=0,
         **kwargs  # Ignored
 ):
+    assert isinstance(evaluation_id, str), 'evaluation_id must be given as a str'
+    assert isinstance(alignment_id, str), 'alignment_id must be given as a str'
+
     t0 = time.time()
 
     print('%sEvaluating (evaluation_id=%s)' % (' ' * (indent * 2), evaluation_id))
@@ -297,14 +309,24 @@ def evaluate(
         output_dir=output_dir,
         evaluation_atlases=evaluation_atlases,
         evaluation_id=evaluation_id,
+        alignment_id=alignment_id,
         average_first=average_first,
         use_poibin=use_poibin,
         compress_outputs=compress_outputs,
     )
 
+    evaluation_dir = get_path(output_dir, 'subdir', 'evaluate', evaluation_id)
+    if not os.path.exists(evaluation_dir):
+        os.makedirs(evaluation_dir)
+    kwargs_path = get_path(output_dir, 'kwargs', 'evaluate', evaluation_id)
+    with open(kwargs_path, 'w') as f:
+        yaml.safe_dump(kwargs, f, sort_keys=False)
+    output_path = get_path(output_dir, 'output', 'evaluate', evaluation_id, compressed=compress_outputs)
+
+    suffix = get_suffix(compress_outputs)
+
     # Collect references atlases and alignments
-    alignment_subdir = '%s_%s' % (ALIGNMENT_SUBDIR, alignment_id)
-    alignment_dir = join(output_dir, alignment_subdir)
+    alignment_dir = get_path(output_dir, 'subdir', 'align', alignment_id)
     reference_atlases = []
     candidates = {}
     for reference_atlas in evaluation_atlases:
@@ -316,25 +338,13 @@ def evaluate(
 
         for path in os.listdir(alignment_dir):
             if path.startswith(reference_atlas):
-                if path.endswith('.nii.gz') or path.endswith('.nii'):
-                    if path.endswith('.nii.gz'):
-                        trim = 7
-                    else:
-                        trim = 4
+                if path.endswith(suffix):
+                    trim = len(suffix)
                     name = path[:-trim]
                     path = join(alignment_dir, path)
                     if reference_atlas not in candidates:
                         candidates[reference_atlas] = {}
                     candidates[reference_atlas][name] = get_nii(path)
-
-    evaluation_subdir = '%s_%s' % (EVALUATION_SUBDIR, evaluation_id)
-    output_dir = join(output_dir, evaluation_subdir)
-    if basename(output_dir) != evaluation_subdir:
-        output_dir = join(output_dir, evaluation_subdir)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    with open(join(output_dir, EVALUATE_CFG_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
 
     # Format data
     reference_data = ReferenceData(
@@ -347,7 +357,7 @@ def evaluate(
         compress_outputs=compress_outputs
     )
     evaluation_atlases = evaluation_data.evaluation_atlases
-    evaluation_data.save_atlases(output_dir)
+    evaluation_data.save_atlases(evaluation_dir)
     for x in candidates:
         for y in candidates[x]:
             candidates[x][y] = reference_data.flatten(candidates[x][y])
@@ -407,85 +417,351 @@ def evaluate(
                 print(_pretty_print_evaluation_row(row, indent=indent + 1))
 
     results = pd.DataFrame(results)
-    results.to_csv(join(output_dir, EVALUATION_FILENAME), index=False)
+    results.to_csv(output_path, index=False)
 
     print('%sEvaluation time: %ds' % (' ' * (indent * 2), time.time() - t0))
 
+    return results
 
-def run(
-        parcellate_kwargs=None,
-        align_kwargs=None,
+
+def aggregate(
+        output_dir,
+        grid_params,
+        sample_id,
+        alignment_id,
+        aggregation_id,
+        evaluation_id=None,
+        subnetwork_id=None,
+        eps=1e-3,
+        compress_outputs=None,
+        indent=0,
+        **kwargs  # Ignored
+):
+    assert isinstance(output_dir, str), 'output_dir must be given as a str'
+    assert isinstance(grid_params, dict), 'grid_params must be given as a dict'
+    assert isinstance(sample_id, str), 'sample_id must be given as a str'
+    assert isinstance(alignment_id, str), 'alignment_id must be given as a str'
+    assert isinstance(aggregation_id, str), 'aggregation_id must be given as a str'
+
+    t0 = time.time()
+    print('%sAggregating grid' % (' ' * (indent * 2)))
+    indent += 1
+
+    kwargs = dict(
+        output_dir=output_dir,
+        grid_params=grid_params,
+        sample_id=sample_id,
+        alignment_id=alignment_id,
+        evaluation_id=evaluation_id,
+        aggregation_id=aggregation_id,
+        subnetwork_id=subnetwork_id,
+        eps=eps,
+        compress_outputs=compress_outputs
+    )
+
+    aggregation_dir = get_path(output_dir, 'subdir', 'aggregate', aggregation_id)
+    if not os.path.exists(aggregation_dir):
+        os.makedirs(aggregation_dir)
+    kwargs_path = get_path(output_dir, 'kwargs', 'aggregate', aggregation_id)
+    with open(kwargs_path, 'w') as f:
+        yaml.safe_dump(kwargs, f, sort_keys=False)
+    output_path = get_path(output_dir, 'output', 'aggregate', aggregation_id, compressed=compress_outputs)
+    evaluation_path = get_path(output_dir, 'evaluation', 'aggregate', aggregation_id)
+
+    grid_settings = process_grid_params(grid_params)
+    results = []
+    grid_ids = []
+    scores = []
+    for grid_setting in grid_settings:
+        grid_id = get_grid_id(grid_setting)
+        grid_ids.append(grid_id)
+        _output_dir = get_path(output_dir, 'subdir', 'grid', grid_id)
+        score = None
+        if evaluation_id is not None:
+            evaluation_dir = get_path(_output_dir, 'subdir', 'evaluate', evaluation_id)
+            if os.path.exists(evaluation_dir):
+                results_file_path = get_path(_output_dir, 'output', 'evaluate', evaluation_id)
+                _results = pd.read_csv(results_file_path)
+                _results['grid_id'] = grid_id
+                results.append(_results)
+                score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, eps=eps)
+        else:
+            alignment_dir = get_path(_output_dir, 'subdir', 'align', alignment_id)
+            if os.path.exists(alignment_dir):
+                results_file_path = get_path(_output_dir, 'evaluation', 'align', alignment_id)
+                _results = pd.read_csv(results_file_path)
+                _results['grid_id'] = grid_id
+                results.append(_results)
+                score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, eps=eps)
+            else:
+                raise ValueError(('No available selection criteria for grid_id %s (no alignment or evaluation '
+                                  'data found). Aggregation failed.' % grid_id))
+        scores.append(score)
+    results = pd.concat(results, axis=0)
+
+    # Select configuration
+    best_ix = np.argmax(scores)
+    best_id = grid_ids[best_ix]
+    best_score = scores[best_ix]
+
+    results['selected'] = (results.grid_id == best_id) & (results.parcel_type != 'baseline')
+    results.to_csv(evaluation_path, index=False)
+
+    # Save configuration
+    best_grid_dir = get_path(output_dir, 'subdir', 'grid', best_id)
+    sample_kwargs_path = get_path(best_grid_dir, 'kwargs', 'sample', sample_id)
+    sample_kwargs_path_exists = os.path.exists(sample_kwargs_path)
+    align_kwargs_path = get_path(best_grid_dir, 'kwargs', 'align', alignment_id)
+    align_kwargs_path_exists = os.path.exists(align_kwargs_path)
+    if evaluation_id is not None:
+        evaluate_kwargs_path = get_path(best_grid_dir, 'kwargs', 'evaluate', evaluation_id)
+        evaluate_kwargs_path_exists = os.path.exists(evaluate_kwargs_path)
+    else:
+        evaluate_kwargs_path = None
+        evaluate_kwargs_path_exists = None
+    assert sample_kwargs_path_exists, '%s does not exist' % sample_kwargs_path
+    assert align_kwargs_path_exists or evaluate_kwargs_path_exists, ('Either %s or %s must exist' %
+        (align_kwargs_path, evaluate_kwargs_path))
+    assert evaluation_id is None or evaluate_kwargs_path_exists, '%s does not exist' % evaluate_kwargs_path
+
+    sample_kwargs = get_cfg(sample_kwargs_path)
+    align_kwargs = get_cfg(align_kwargs_path)
+    if evaluation_id:
+        evaluate_kwargs = get_cfg(evaluate_kwargs_path)
+    else:
+        evaluate_kwargs = None
+
+    parcellate_kwargs = dict(
+        output_dir=output_dir,
+        action_sequence=None,
+        sample_kwargs=sample_kwargs,
+        align_kwargs=align_kwargs,
+        evaluate_kwargs=evaluate_kwargs,
+        aggregate_kwargs=None,
+        grid_params=None,
+        eps=eps,
+    )
+
+    with open(output_path, 'w') as f:
+        yaml.safe_dump(parcellate_kwargs, f, sort_keys=False)
+
+    print('%sBest grid_id: %s | atlas score: %0.3f' % (' ' * (indent * 2), best_id, best_score))
+
+    print('%sAggregation time: %ds' % (' ' * (indent * 2), time.time() - t0))
+
+    return parcellate_kwargs
+
+
+def parcellate(
+        output_dir,
+        action_sequence,
+        sample_kwargs,
+        align_kwargs,
         evaluate_kwargs=None,
-        parcellation_id='main',
-        alignment_id='main',
-        evaluation_id='main',
-        output_dir=None,
+        aggregate_kwargs=None,
+        grid_params=None,
+        eps=1e-3,
+        compress_outputs=True,
         overwrite=False,
         indent=0
 ):
+    assert isinstance(output_dir, str), 'output_dir is required, must be given as a str'
+    assert isinstance(action_sequence, list), 'action_sequence is required, must be given as a list of dict'
+    assert isinstance(sample_kwargs, dict), 'sample_kwargs is required, must be given as a dict.'
+    assert isinstance(align_kwargs, dict), 'sample_kwargs is required, must be given as a dict.'
+    assert isinstance(aggregate_kwargs, dict) == isinstance(grid_params, dict), ('Either both aggregation_kwargs '
+        'and grid_params must be provided as dicts, or neither can be.')
+
     t0 = time.time()
-    print('%sProcessing' % (' ' * (indent * 2)))
+    print('%sParcellating' % (' ' * (indent * 2)))
     indent += 1
 
-    if output_dir is None:
-        output_dir = get_val_from_kwargs(
-            parcellate_kwargs=parcellate_kwargs,
-            align_kwargs=align_kwargs,
-            evaluate_kwargs=evaluate_kwargs,
+    kwargs = dict(
+        output_dir=output_dir,
+        action_sequence=action_sequence,
+        sample_kwargs=sample_kwargs,
+        align_kwargs=align_kwargs,
+        evaluate_kwargs=evaluate_kwargs,
+        aggregate_kwargs=aggregate_kwargs,
+        grid_params=grid_params,
+        eps=eps,
+        compress_outputs=compress_outputs,
+    )
+
+    sample_id = get_action_id('sample', action_sequence)
+    alignment_id = get_action_id('align', action_sequence)
+    evaluation_id = get_action_id('evaluate', action_sequence)
+    aggregation_id = get_action_id('aggregate', action_sequence)
+    parcellation_id = get_action_id('parcellate', action_sequence)
+
+    assert isinstance(sample_id, str), 'sample_id is required, must be given as a str.'
+    assert isinstance(alignment_id, str), 'alignment_id is required, must be given as a str.'
+    assert isinstance(parcellation_id, str), 'parcellation_id is required, must be given as a str.'
+
+    parcellation_dir = get_path(output_dir, 'subdir', 'parcellate', parcellation_id)
+    if not os.path.exists(parcellation_dir):
+        os.makedirs(parcellation_dir)
+    kwargs_path = get_path(output_dir, 'kwargs', 'parcellate', parcellation_id)
+    with open(kwargs_path, 'w') as f:
+        yaml.safe_dump(kwargs, f, sort_keys=False)
+    output_path = get_path(output_dir, 'output', 'parcellate', parcellation_id, compressed=compress_outputs)
+
+    for _kwargs in (sample_kwargs, align_kwargs, evaluate_kwargs):
+        if _kwargs is not None:
+            _kwargs['output_dir'] = output_dir
+            _kwargs['compress_outputs'] = compress_outputs
+
+    suffix = get_suffix(compress_outputs)
+
+    # Grid search
+    if grid_params:
+        print('%sGrid searching' % (' ' * (indent * 2)))
+
+        _action_sequence = [x for x in action_sequence if x['type'] != 'aggregate']
+        indent += 1
+        grid_settings = process_grid_params(grid_params)
+        for grid_setting in grid_settings:
+            grid_id = get_grid_id(grid_setting)
+
+            print('%sGrid id: %s' % (' ' * (indent * 2), grid_id))
+
+            _output_dir = get_path(output_dir, 'subdir', 'grid', grid_id)
+            _sample_kwargs = copy.deepcopy(sample_kwargs)
+            _sample_kwargs.update(grid_setting)
+            _align_kwargs = copy.deepcopy(align_kwargs)
+            _sample_kwargs.update(grid_setting)
+            _evaluate_kwargs = copy.deepcopy(evaluate_kwargs)
+            if _evaluate_kwargs is not None:
+                _evaluate_kwargs.update(grid_setting)
+
+            # Recursion bottoms out since grid_params is None
+            parcellate(
+                _output_dir,
+                _action_sequence,
+                _sample_kwargs,
+                align_kwargs=_align_kwargs,
+                evaluate_kwargs=_evaluate_kwargs,
+                eps=eps,
+                compress_outputs=compress_outputs,
+                overwrite=overwrite,
+                indent=indent + 1
+            )
+
+        indent -= 1
+
+        mtime, exists = check_deps(
+            output_dir,
+            action_sequence[1:],  # aggregate is always the 2nd entry if used
+            compressed=True
         )
-    else:
-        for kwargs in (parcellate_kwargs, align_kwargs, evaluate_kwargs):
-            kwargs['output_dir'] = output_dir
-
-    if output_dir is None:
-        print('No valid actions to run. Terminating.')
-        return
-
-    parcellation_subdir = '%s_%s' % (PARCELLATION_SUBDIR, parcellation_id)
-    if basename(output_dir) != parcellation_subdir:
-        output_dir = join(output_dir, parcellation_subdir)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    compress_outputs = parcellate_kwargs.get('compress_outputs', True)
-
-    # Parcellate
-    if parcellate_kwargs:
-        _kwargs = parcellate_kwargs
-        _kwargs['parcellation_id'] = parcellation_id
-        mtime, exists = check_parcellation(output_dir, compressed=compress_outputs)
         stale = mtime == 1
         if overwrite or stale or not exists:
-            parcellate(**_kwargs, indent=indent)
+            # Recursion bottoms out since grid_params is None
+            _aggregate_kwargs = copy.deepcopy(aggregate_kwargs)
+            _aggregate_kwargs.update(dict(
+                output_dir=output_dir,
+                grid_params=grid_params,
+                sample_id=sample_id,
+                alignment_id=alignment_id,
+                evaluation_id=evaluation_id,
+                aggregation_id=aggregation_id,
+                eps=eps,
+                compress_outputs=compress_outputs,
+                indent=indent,
+            ))
+            parcellate_kwargs = aggregate(**_aggregate_kwargs)
         else:
-            print('%sParcellation exists. Skipping. To resample parcellation, run with ``overwrite=True``.' %
-                  (' ' * ((indent + 1) * 2)))
+            print('%sAggregation exists. Skipping. To re-aggregate, run with overwrite=True.' %
+                  (' ' * (indent * 2)))
+            aggregation_output_path = get_path(output_dir, 'output', 'aggregate', aggregation_id)
+            with open(aggregation_output_path, 'r') as f:
+                parcellate_kwargs = yaml.safe_load(f)
 
-    # Align
-    if align_kwargs:
-        _kwargs = align_kwargs
-        _kwargs['alignment_id'] = alignment_id
-        mtime, exists = check_alignment(output_dir, alignment_id, compressed=compress_outputs)
+        parcellate_kwargs.update(dict(
+            action_sequence=_action_sequence,
+            indent=indent
+        ))
+        parcellate(**parcellate_kwargs)
+    else:
+        # Sample
+        _kwargs = copy.deepcopy(sample_kwargs)
+        _kwargs.update(dict(
+            output_dir=output_dir,
+            sample_id=sample_id
+        ))
+        _action_sequence = action_sequence[-1:]  # sample is always last
+        mtime, exists = check_deps(
+            output_dir,
+            _action_sequence,
+            compressed=True
+        )
+        stale = mtime == 1
+        if overwrite or stale or not exists:
+            sample(**_kwargs, indent=indent)
+        else:
+            print('%sSample exists. Skipping. To resample, run with overwrite=True.' %
+                  (' ' * (indent * 2)))
+
+        # Align
+        _kwargs = copy.deepcopy(align_kwargs)
+        _kwargs.update(dict(
+            output_dir=output_dir,
+            alignment_id=alignment_id
+        ))
+        _action_sequence = action_sequence[-2:]  # align is always 2nd to last
+        mtime, exists = check_deps(
+            output_dir,
+            _action_sequence,
+            compressed=True
+        )
         stale = mtime == 1
         if overwrite or stale or not exists:
             align(**_kwargs, indent=indent)
         else:
-            print('%sAlignment exists. Skipping. To re-align, run with ``overwrite=True``.' %
-                  (' ' * ((indent + 1) * 2)))
+            print('%sAlignment exists. Skipping. To re-align, run with overwrite=True.' %
+                  (' ' * (indent * 2)))
 
-    # Evaluate
-    if evaluate_kwargs is not None:
-        _kwargs = evaluate_kwargs
-        _kwargs['evaluation_id'] = evaluation_id
-        mtime, exists = check_evaluation(output_dir, alignment_id, evaluation_id, compressed=compress_outputs)
-        stale = mtime == 1
-        if overwrite or stale or not exists:
-            evaluate(**_kwargs, indent=indent)
-        else:
-            print('%sEvaluation exists. Skipping. To re-evaluate, run with ``overwrite=True``.' %
-                  (' ' * ((indent + 1) * 2)))
+        # Evaluate (optional)
+        if evaluate_kwargs is not None:
+            _kwargs = copy.deepcopy(evaluate_kwargs)
+            _kwargs.update(dict(
+                output_dir=output_dir,
+                evaluation_id=evaluation_id
+            ))
+            _action_sequence = action_sequence[-3:]  # evaluate (if used) is always 3rd to last
+            mtime, exists = check_deps(
+                output_dir,
+                _action_sequence,
+                compressed=True
+            )
+            stale = mtime == 1
+            if overwrite or stale or not exists:
+                evaluate(**_kwargs, indent=indent)
+            else:
+                print('%sEvaluation exists. Skipping. To re-evaluate, run with overwrite=True.' %
+                      (' ' * (indent * 2)))
+
+        # Copy final files to destination
+        results_copied = False
+        if evaluation_id is not None:
+            evaluation_dir = get_path(output_dir, 'subdir', 'evaluate', evaluation_id)
+            for filename in os.listdir(evaluation_dir):
+                if filename.endswith(suffix) or filename == PATHS['evaluate']['output']:
+                    shutil.copy2(join(evaluation_dir, filename), join(parcellation_dir, filename))
+                    if filename == PATHS['evaluate']['output']:
+                        results_copied = True
+        alignment_dir = get_path(output_dir, 'subdir', 'align', alignment_id)
+        for filename in os.listdir(alignment_dir):
+            if filename.endswith(suffix) or (not results_copied and filename == PATHS['align']['evaluation']):
+                shutil.copy2(join(alignment_dir, filename), join(parcellation_dir, filename))
+
+        assert os.path.exists(output_path)
+
+    output = get_nii(output_path)
 
     print('%sTotal time elapsed: %ds' % (' ' * (indent * 2), time.time() - t0))
+
+    return output
 
 
 
@@ -625,363 +901,10 @@ def _get_atlas_score_from_df(df_scores, subnetwork_id=None, eps=1e-3):
     sel = parcel_names.isin(target_parcels)
     parcel_names = parcel_names[sel].tolist()
 
-    assert set(target_parcels) == set(parcel_names), f'Parcel names and reference atlas names mismatch. ' + \
-                                                     f'Parcel names: {parcel_names}. Reference atlas ' + \
-                                                     f'names: {reference_atlas_names}'
+    assert set(target_parcels) == set(parcel_names), (f'Parcel names and reference atlas names mismatch. '
+         f'Parcel names: {parcel_names}. Reference atlas names: {reference_atlas_names}')
 
     scores = scores[sel]
     score = np.tanh(np.arctanh(scores * (1 - 2 * eps) + eps).mean())
 
     return score
-
-
-
-
-
-
-
-
-
-
-######################################
-#
-#  ENSEMBLE METHODS
-#
-######################################
-
-
-def aggregate_grid(
-        output_dir,
-        grid_params=None,
-        alignment_id='main',
-        evaluation_id='main',
-        aggregation_id='main',
-        subnetwork_id=None,
-        eps=1e-3,
-        indent=0,
-        **kwargs  # Ignored
-):
-    t0 = time.time()
-    print('%sAggregating grid' % (' ' * (indent * 2)))
-    indent += 1
-
-    assert isinstance(output_dir, str), 'output_dir must be provided'
-
-    kwargs = dict(
-        output_dir=output_dir,
-        grid_params=grid_params,
-        alignment_id=alignment_id,
-        evaluation_id=evaluation_id,
-        aggregation_id=aggregation_id,
-        subnetwork_id=subnetwork_id,
-        eps=eps
-    )
-
-    # Descend into the grid search subdirectory
-    if not basename(output_dir) == GRID_SUBDIR:
-        output_dir = join(output_dir, GRID_SUBDIR)
-    alignment_subdir = '%s_%s' % (ALIGNMENT_SUBDIR, alignment_id)
-    evaluation_subdir = '%s_%s' % (EVALUATION_SUBDIR, evaluation_id)
-
-    grid_settings = process_grid_params(grid_params)
-    results = []
-    grid_ids = []
-    scores = []
-    for grid_setting in grid_settings:
-        grid_id = get_grid_id(grid_setting)
-        grid_ids.append(grid_id)
-        evaluation_dir = join(output_dir, grid_id, evaluation_subdir)
-        if os.path.exists(evaluation_dir):
-            results_file_path = join(evaluation_dir, EVALUATION_FILENAME)
-            _results = pd.read_csv(results_file_path)
-            _results['grid_id'] = grid_id
-            results.append(_results)
-            score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, eps=eps)
-        else:
-            alignment_dir = join(output_dir, grid_id, alignment_subdir)
-            if os.path.exists(alignment_dir):
-                results_file_path = join(alignment_dir, ALIGNMENT_EVALUATION_FILENAME)
-                _results = pd.read_csv(results_file_path)
-                _results['grid_id'] = grid_id
-                results.append(_results)
-                score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, eps=eps)
-            else:
-                raise ValueError(('No available selection criteria for grid_id %s (no alignment or evaluation '
-                                  'data found). Aggregation failed.' % grid_id))
-        scores.append(score)
-    results = pd.concat(results, axis=0)
-
-    # Ascend into the top-level directory
-    output_dir = dirname(output_dir)
-
-    # Save results
-    aggregation_path = get_aggregation_path(output_dir, aggregation_id)
-    output_dir = dirname(aggregation_path)
-    evaluation_path = join(output_dir, AGGREGATION_EVALUATION_FILENAME)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    with open(join(output_dir, AGGREGATE_CFG_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
-
-    # Select configuration
-    best_ix = np.argmax(scores)
-    best_id = grid_ids[best_ix]
-    best_score = scores[best_ix]
-
-    results['selected'] = (results.grid_id == best_id) & (results.parcel_type != 'baseline')
-    results.to_csv(evaluation_path, index=False)
-
-    # Ascend into the top-level directory
-    output_dir = dirname(output_dir)
-
-    # Save configuration
-    source_dir = join(output_dir, GRID_SUBDIR, best_id)
-    parcellate_cfg_path = join(source_dir, PARCELLATE_CFG_FILENAME)
-    parcellate_cfg_exists = os.path.exists(parcellate_cfg_path)
-    align_cfg_path = join(dirname(get_alignment_path(source_dir, alignment_id)), ALIGN_CFG_FILENAME)
-    align_cfg_exists = os.path.exists(align_cfg_path)
-    evaluate_cfg_path = join(dirname(get_evaluation_path(source_dir, evaluation_id)), EVALUATE_CFG_FILENAME)
-    evaluate_cfg_exists = os.path.exists(evaluate_cfg_path)
-    assert parcellate_cfg_exists, '%s does not exist' % parcellate_cfg_path
-    assert (align_cfg_exists or evaluate_cfg_exists), 'Either %s or %s must exist' % (align_cfg_path, evaluate_cfg_path)
-
-    kwargs = dict(
-        grid_id=best_id,
-        parcellate=get_cfg(parcellate_cfg_path)
-    )
-    if align_cfg_exists:
-        cfg = get_cfg(align_cfg_path)
-        alignment_id = cfg.pop('alignment_id')
-        kwargs['align'] = {alignment_id: cfg}
-    if evaluate_cfg_exists:
-        cfg = get_cfg(evaluate_cfg_path)
-        evaluation_id = cfg.pop('evaluation_id')
-        kwargs['evaluate'] = {evaluation_id: cfg}
-    with open(join(dirname(aggregation_path), AGGREGATION_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
-
-    print('%sBest grid_id: %s | atlas score: %0.3f' % (' ' * (indent * 2), best_id, best_score))
-
-    print('%sAggregation time: %ds' % (' ' * (indent * 2), time.time() - t0))
-
-    return kwargs
-
-
-def run_grid(
-        parcellate_kwargs,
-        align_kwargs=None,
-        evaluate_kwargs=None,
-        aggregate_kwargs=None,
-        refit_kwargs=None,
-        grid_params=None,
-        parcellation_id='main',
-        alignment_id='main',
-        evaluation_id='main',
-        aggregation_id='main',
-        refit=None,
-        output_dir=None,
-        compress_outputs=None,
-        overwrite=False,
-        indent=0
-):
-    t0 = time.time()
-    print('%sGrid searching' % (' ' * (indent * 2)))
-    indent += 1
-
-    kwargs = dict(
-        parcellate_kwargs=parcellate_kwargs,
-        align_kwargs=align_kwargs,
-        evaluate_kwargs=evaluate_kwargs,
-        aggregate_kwargs=aggregate_kwargs,
-        refit_kwargs=refit_kwargs,
-        grid_params=grid_params,
-        parcellation_id=parcellation_id,
-        alignment_id=alignment_id,
-        evaluation_id=evaluation_id,
-        aggregation_id=aggregation_id,
-        refit=refit,
-        output_dir=output_dir,
-    )
-
-    if output_dir is None:
-        output_dir = get_val_from_kwargs(
-            'output_dir',
-            parcellate_kwargs=parcellate_kwargs,
-            align_kwargs=align_kwargs,
-            evaluate_kwargs=evaluate_kwargs,
-            aggregate_kwargs=aggregate_kwargs
-        )
-    else:
-        for _kwargs in (parcellate_kwargs, align_kwargs, evaluate_kwargs):
-            if _kwargs is not None:
-                _kwargs['output_dir'] = output_dir
-    if output_dir is None:
-        print('No valid actions to run. Terminating.')
-        return
-
-    if compress_outputs is None:
-        compress_outputs = get_val_from_kwargs(
-            'compress_outputs',
-            parcellate_kwargs=parcellate_kwargs,
-            align_kwargs=align_kwargs,
-            evaluate_kwargs=evaluate_kwargs,
-            aggregate_kwargs=aggregate_kwargs
-        )
-
-    # Descend into the grid search subdirectory
-    if not basename(output_dir) == GRID_SUBDIR:
-        output_dir = join(output_dir, GRID_SUBDIR)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    with open(join(output_dir, GRID_CFG_FILENAME), 'w') as f:
-        yaml.dump(kwargs, f)
-
-    if (
-            parcellate_kwargs is not None or
-            align_kwargs is not None or
-            evaluate_kwargs is not None
-    ):
-        grid_settings = process_grid_params(grid_params)
-        for grid_setting in grid_settings:
-            grid_id = get_grid_id(grid_setting)
-            _output_dir = output_dir
-            _output_dir = join(_output_dir, grid_id)
-
-            print('%sGrid id: %s' % (' ' * (indent * 2), grid_id))
-
-            # Parcellate
-            if parcellate_kwargs is not None:
-                mtime, exists = check_parcellation(_output_dir, compressed=compress_outputs)
-                stale = mtime == 1
-                if overwrite or stale or not exists:
-                    _kwargs = parcellate_kwargs.copy()
-                    _kwargs.update(grid_setting)
-                    _kwargs.update(dict(
-                        output_dir=_output_dir
-                    ))
-                    parcellate(**_kwargs, indent=indent + 1)
-                else:
-                    print('%sParcellation exists. Skipping. To resample parcellation, run with ``overwrite=True``.' %
-                          (' ' * ((indent + 1) * 2)))
-
-            # Align
-            if align_kwargs is not None:
-                mtime, exists = check_alignment(_output_dir, alignment_id, compressed=compress_outputs)
-                stale = mtime == 1
-                if overwrite or stale or not exists:
-                    _kwargs = align_kwargs.copy()
-                    _kwargs.update(grid_setting)
-                    _kwargs.update(dict(
-                        alignment_id=alignment_id,
-                        output_dir=_output_dir
-                    ))
-                    align(**_kwargs, indent=indent + 1)
-                else:
-                    print('%sAlignment exists. Skipping. To re-align, run with ``overwrite=True``.' %
-                          (' ' * ((indent + 1) * 2)))
-
-            # Evaluate
-            if evaluate_kwargs is not None:
-                mtime, exists = check_evaluation(_output_dir, alignment_id, evaluation_id, compressed=compress_outputs)
-                stale = mtime == 1
-                if overwrite or stale or not exists:
-                    _kwargs = evaluate_kwargs.copy()
-                    _kwargs.update(grid_setting)
-                    _kwargs.update(dict(
-                        evaluation_id=evaluation_id,
-                        output_dir=_output_dir
-                    ))
-                    evaluate(**_kwargs, indent=indent + 1)
-                else:
-                    print('%sEvaluation exists. Skipping. To re-evaluate, run with ``overwrite=True``.' %
-                          (' ' * ((indent + 1) * 2)))
-
-    # Ascend into the top-level directory
-    output_dir = dirname(output_dir)
-
-    # Aggregate results and find winning parcellation
-    aggregation_ran = False
-    if aggregate_kwargs is not None:
-
-        mtime, exists = check_aggregation(
-            output_dir,
-            alignment_id,
-            evaluation_id,
-            aggregation_id,
-            grid_params,
-            compressed=compress_outputs
-        )
-        stale = mtime == 1
-        if overwrite or stale or not exists:
-            _kwargs = aggregate_kwargs.copy()
-            _kwargs.update(dict(
-                output_dir=output_dir,
-                grid_params=grid_params,
-                alignment_id=alignment_id,
-                evaluation_id=evaluation_id,
-                aggregation_id=aggregation_id,
-                indent=indent,
-            ))
-            aggregate_grid(**_kwargs)
-            aggregation_ran = True
-        else:
-            print('%sAggregation exists. Skipping. To re-aggregate, run with ``overwrite=True``.' %
-                  (' ' * ((indent + 1) * 2)))
-
-    # Copy or refit winning parcellation
-    if refit_kwargs is not None:
-        aggregation_path = get_aggregation_path(output_dir, aggregation_id)
-        cfg = get_cfg(aggregation_path)
-
-        parcellation_subdir = '%s_%s' % (PARCELLATION_SUBDIR, parcellation_id)
-        if basename(output_dir) != parcellation_subdir:
-            output_dir = join(output_dir, parcellation_subdir)
-
-        do_refit = aggregation_ran  # Aggregation just ran, refit
-        if not do_refit:
-            mtime = get_parcellation_mtime(output_dir, compressed=compress_outputs)
-            if mtime is None:  # Target parcellation doesn't exist, refit
-                do_refit = True
-            else:
-                aggregation_mtime, _ = check_aggregation(
-                    dirname(output_dir),
-                    alignment_id,
-                    evaluation_id,
-                    aggregation_id,
-                    grid_params,
-                    compressed=compress_outputs
-                )
-                if aggregation_mtime and mtime < aggregation_mtime:  # Target parcellation is stale, refit
-                    do_refit = True
-
-        if do_refit:
-            print('%sRefitting' % (' ' * (indent * 2)))
-            _parcellate_kwargs = get_parcellate_kwargs(cfg)
-            _parcellate_kwargs.update(refit_kwargs)
-            _align_kwargs = get_align_kwargs(cfg, alignment_id)
-            _evaluate_kwargs = get_evaluate_kwargs(cfg, evaluation_id)
-
-            run(
-                parcellate_kwargs=_parcellate_kwargs,
-                align_kwargs=_align_kwargs,
-                evaluate_kwargs=_evaluate_kwargs,
-                parcellation_id=parcellation_id,
-                alignment_id=alignment_id,
-                evaluation_id=evaluation_id,
-                output_dir=output_dir,
-                overwrite=True,
-                indent=indent + 1
-            )
-
-    elif aggregate_kwargs is not None:
-        if aggregation_ran:  # Aggregation was performed and no refitting is requested, so copy the winner
-            aggregation_path = get_aggregation_path(output_dir, aggregation_id)
-            aggregation_cfg = get_cfg(aggregation_path)
-            grid_id = aggregation_cfg['grid_id']
-            winner_path = os.path.join(output_dir, GRID_SUBDIR, grid_id)
-            out_path = '%s_%s' % (PARCELLATION_SUBDIR, parcellation_id)
-            if basename(output_dir) != out_path:
-                out_path = join(output_dir, out_path)
-            shutil.copytree(winner_path, out_path, dirs_exist_ok=True)
-
-    print('%sGrid search total time elapsed: %ds' % (' ' * (indent * 2), time.time() - t0))

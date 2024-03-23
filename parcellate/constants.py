@@ -1,24 +1,46 @@
 import re
 
+CFG_FILENAME = 'config.yml'
+DEFAULT_ID = 'main'
 N_INIT = 1
 INIT_SIZE = None
-CFG_FILENAME = 'config.yml'
-SAMPLE_FILENAME_BASE = 'sample'
-PARCELLATE_CFG_FILENAME = 'parcellate.yml'
-PARCELLATION_SUBDIR = 'parcellation'
-PARCELLATION_FILENAME_BASE = 'parcellation'
-ALIGN_CFG_FILENAME = 'align.yml'
-ALIGNMENT_SUBDIR = 'alignment'
-ALIGNMENT_FILENAME_BASE = 'parcellation'
-ALIGNMENT_EVALUATION_FILENAME = 'evaluation.csv'
-EVALUATE_CFG_FILENAME = 'evaluate.yml'
-EVALUATION_SUBDIR = 'evaluation'
-EVALUATION_FILENAME = 'evaluation.csv'
-AGGREGATE_CFG_FILENAME = 'aggregate.yml'
-AGGREGATION_SUBDIR = 'aggregation'
-AGGREGATION_FILENAME = 'aggregation.yml'
-AGGREGATION_EVALUATION_FILENAME = 'evaluation.csv'
-GRID_SUBDIR = 'grid'
-GRID_CFG_FILENAME = 'grid.yml'
-FINAL_PARCELLATION_SUBDIR = 'parcellation'
 TRAILING_DIGITS = re.compile('.*?([0-9]*)$')
+ACTION_VERB_TO_NOUN = dict(
+    sample='sample',
+    align='alignment',
+    evaluate='evaluation',
+    aggregate='aggregation',
+    parcellate='parcellation',
+)
+PATHS = dict(
+    sample=dict(
+        kwargs='sample_kwargs.yml',
+        subdir=ACTION_VERB_TO_NOUN['sample'],
+        output='sample%s',
+    ),
+    align=dict(
+        kwargs='align_kwargs.yml',
+        subdir=ACTION_VERB_TO_NOUN['align'],
+        output='parcellation%s',
+        evaluation='evaluation.csv'
+    ),
+    evaluate=dict(
+        kwargs='evaluate_kwargs.yml',
+        subdir=ACTION_VERB_TO_NOUN['evaluate'],
+        output='evaluation.csv',
+    ),
+    aggregate=dict(
+        kwargs='aggregate_kwargs.yml',
+        subdir=ACTION_VERB_TO_NOUN['aggregate'],
+        output='parcellate_kwargs.yml',
+        evaluation='evaluation.csv'
+    ),
+    parcellate=dict(
+        kwargs='parcellate_kwargs.yml',
+        subdir=ACTION_VERB_TO_NOUN['parcellate'],
+        output='parcellation%s',
+    ),
+    grid=dict(
+        subdir='grid'
+    )
+)

@@ -38,16 +38,16 @@ if __name__ == '__main__':
     argparser.add_argument('cfg_paths', nargs='+', help=textwrap.dedent('''\
         Path(s) to ``parcellate`` config files (config.yml) to plot.'''
     ))
-    argparser.add_argument('reference_atlases', default=None, help=textwrap.dedent('''\
+    argparser.add_argument('-r', '--reference_atlases', default=None, help=textwrap.dedent('''\
         Name of reference atlas(es) to use for plotting. If ``None``, use all available reference atlases.'''
     ))
-    argparser.add_argument('evaluation_atlases', default=None, help=textwrap.dedent('''\
+    argparser.add_argument('-e', '--evaluation_atlases', default=None, help=textwrap.dedent('''\
         Name of evaluation atlas(es) to use for plotting. If ``None``, use all available evaluation atlases.'''
     ))
-    argparser.add_argument('aggregation_id', default='main', help=textwrap.dedent('''\
+    argparser.add_argument('-g', '--aggregation_id', default='main', help=textwrap.dedent('''\
         Value of ``aggregation_id`` from which to extract grid search performance data. Defaults to ``main``.'''
     ))
-    argparser.add_argument('dimensions', nargs='+', default=None, help=textwrap.dedent('''\
+    argparser.add_argument('-d', '--dimensions', nargs='+', default=None, help=textwrap.dedent('''\
         Name of grid-searched dimension(s) to plot. If ``None``, use all available dimensions.'''
     ))
     args = argparser.parse_args()
@@ -57,3 +57,12 @@ if __name__ == '__main__':
     evaluation_atlases = args.evaluation_atlases
     aggregation_id = args.aggregation_id
     dimensions = args.dimensions
+
+    plot_grids(
+        cfg_paths,
+        dimensions=dimensions,
+        reference_atlases=reference_atlases,
+        evaluation_atlases=evaluation_atlases,
+        aggregation_id=aggregation_id,
+        output_dir='parcellate_plots'
+    )
