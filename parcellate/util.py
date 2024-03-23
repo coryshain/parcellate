@@ -118,12 +118,12 @@ def get_max_mtime(*mtimes):
     return None
 
 
-def get_action_id(action_type, action_sequence):
-    action_id = None
-    for dep in action_sequence:
-        if dep['type'] == action_type:
-            return dep['id']
-    return action_id
+def get_action(action_type, action_sequence):
+    action = None
+    for action in action_sequence:
+        if action['type'] == action_type:
+            return action
+    return action
 
 
 def is_stale(target_mtime, dep_mtime):

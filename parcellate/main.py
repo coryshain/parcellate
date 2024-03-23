@@ -4,7 +4,7 @@ import yaml
 import argparse
 
 from parcellate.cfg import *
-from parcellate.util import CFG_FILENAME, join, get_action_id
+from parcellate.util import CFG_FILENAME, join, get_action
 from parcellate.model import parcellate
 
 if __name__ == '__main__':
@@ -44,11 +44,11 @@ if __name__ == '__main__':
     assert len(action_sequence) >= 3, ('Dependency configuration error. A parcellation requires at least 3 actions: '
         'sample, align, and parcellate. Got the following value of deps: %s.' % action_sequence)
 
-    sample_id = get_action_id('sample', action_sequence)
-    alignment_id = get_action_id('align', action_sequence)
-    evaluation_id = get_action_id('evaluate', action_sequence)
-    aggregation_id = get_action_id('aggregate', action_sequence)
-    parcellation_id = get_action_id('parcellate', action_sequence)
+    sample_id = get_action('sample', action_sequence)['id']
+    alignment_id = get_action('align', action_sequence)['id']
+    evaluation_id = get_action('evaluate', action_sequence)['id']
+    aggregation_id = get_action('aggregate', action_sequence)['id']
+    parcellation_id = get_action('parcellate', action_sequence)['id']
 
     # Parcellation's predecessor is always the 1st entry of the deps
     parcellation_predecessor = action_sequence[1]['type']
