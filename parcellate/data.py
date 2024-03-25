@@ -24,16 +24,20 @@ def detrend_array(arr, axis=1):
 
 
 def minmax_normalize_array(arr, eps=1e-8, axis=None):
-    arr -= arr.min(axis=axis, keepdims=True)
-    arr /= arr.max(axis=axis, keepdims=True) + eps
+    arr = arr - arr.min(axis=axis, keepdims=True)
+    arr = arr / arr.max(axis=axis, keepdims=True) + eps
 
     return arr
 
 
-def get_nii(path, nii_cache=NII_CACHE):
+def get_nii(path, nii_cache=NII_CACHE, add_to_cache=True):
     if path not in nii_cache:
-        nii_cache[path] = image.smooth_img(path, None)
-    return nii_cache[path]
+        img = image.smooth_img(path, None)
+        if add_to_cache:
+            nii_cache[path] = img
+    else:
+        img = nii_cache[path]
+    return img
 
 
 def get_atlas(atlas):
@@ -107,12 +111,12 @@ def align_samples(parcellations, ref_ix, w=None):
                 _parcellation = _parcellation[ix_r]
                 if w is not None:
                     _parcellation = _parcellation * w[si]
-            parcellation += _parcellation
+            parcellation = parcellation + _parcellation
     if w is not None:
         denom = w.sum()
     else:
         denom = n_samples
-    parcellation /= denom
+    parcellation = parcellation / denom
 
     return parcellation
 
@@ -333,7 +337,7 @@ class ReferenceData(Data):
         for key in reference_atlases:
             val = reference_atlases[key]
             val = self.flatten(val)
-            val = standardize_array(val)
+            # val = standardize_array(val)
             reference_atlases[key] = val
 
         self.reference_atlases = reference_atlases
@@ -386,7 +390,7 @@ class EvaluationData(Data):
             for key in _evaluation_atlases:
                 val = _evaluation_atlases[key]
                 val = self.flatten(val)
-                val = standardize_array(val)
+                # val = standardize_array(val)
                 _evaluation_atlases[key] = val
 
         self.evaluation_atlases = evaluation_atlases

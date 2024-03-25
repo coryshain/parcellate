@@ -4,7 +4,7 @@ import yaml
 import argparse
 
 from parcellate.cfg import *
-from parcellate.util import CFG_FILENAME, join, get_action
+from parcellate.util import CFG_FILENAME, join
 from parcellate.model import parcellate
 
 if __name__ == '__main__':
@@ -41,26 +41,6 @@ if __name__ == '__main__':
         parcellation_id
     )
 
-    assert len(action_sequence) >= 3, ('Dependency configuration error. A parcellation requires at least 3 actions: '
-        'sample, align, and parcellate. Got the following value of deps: %s.' % action_sequence)
-
-    sample_id = get_action('sample', action_sequence)['id']
-    alignment_id = get_action('align', action_sequence)['id']
-    evaluation_id = get_action('evaluate', action_sequence)['id']
-    aggregation_id = get_action('aggregate', action_sequence)['id']
-    parcellation_id = get_action('parcellate', action_sequence)['id']
-
-    # Parcellation's predecessor is always the 1st entry of the deps
-    parcellation_predecessor = action_sequence[1]['type']
-    parcellation_predecessor_id = action_sequence[1]['id']
-
-    assert not parcellation_predecessor is None, 'Dependency error. No dependency found for parcellation'
-
-    sample_kwargs = get_kwargs(cfg, 'sample', sample_id)
-    align_kwargs = get_kwargs(cfg, 'align', alignment_id)
-    evaluate_kwargs = get_kwargs(cfg, 'evaluate', evaluation_id)
-    aggregate_kwargs = get_kwargs(cfg, 'aggregate', aggregation_id)
-
     output_dir = cfg.get('output_dir', None)
     compress_outputs = cfg.get('compress_outputs', True)
 
@@ -71,7 +51,7 @@ if __name__ == '__main__':
     with open(join(output_dir, CFG_FILENAME), 'w') as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
-    if aggregate_kwargs and 'grid' in cfg and not nogrid:
+    if 'grid' in cfg and not nogrid:
         grid_params = get_grid_params(cfg)
     else:
         grid_params = None
@@ -79,10 +59,6 @@ if __name__ == '__main__':
     parcellate(
         output_dir,
         action_sequence,
-        sample_kwargs,
-        align_kwargs,
-        evaluate_kwargs=evaluate_kwargs,
-        aggregate_kwargs=aggregate_kwargs,
         grid_params=grid_params,
         compress_outputs=compress_outputs,
         overwrite=overwrite

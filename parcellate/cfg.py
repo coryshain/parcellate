@@ -60,18 +60,25 @@ def get_action_sequence(
         cfg,
         action_type,
         action_id,
-        deps=None
+        action_sequence=None
 ):
-    if deps is None:
-        deps = []
+    if action_sequence is None:
+        action_sequence = []
     if action_id is None:
         action_id = list(cfg[action_type].keys())[0]
     assert action_id in cfg[action_type], 'No entry %s found in %s' % (action_id, action_type)
-    dep = {'type': action_type, 'id': action_id}
-    deps.append(dep)
+    kwargs = get_kwargs(cfg, action_type, action_id)
+    action = dict(
+        type=action_type,
+        id=action_id,
+        kwargs=kwargs
+    )
+    if len(action_sequence):
+        action_sequence[0]['kwargs']['%s_id' % ACTION_VERB_TO_NOUN[action_type]] = action_id
+    action_sequence.insert(0, action)
 
     if action_type == 'sample':
-        return deps
+        return action_sequence
     if action_type == 'align':
         action_id = cfg[action_type][action_id].get('sample_id', None)
         action_type = 'sample'
@@ -113,11 +120,11 @@ def get_action_sequence(
     else:
         raise ValueError('Unrecognized action_type %s' % action_type)
 
-    deps = get_action_sequence(
+    action_sequence = get_action_sequence(
         cfg,
         action_type,
         action_id,
-        deps
+        action_sequence
     )
 
-    return deps
+    return action_sequence

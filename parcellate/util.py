@@ -118,12 +118,58 @@ def get_max_mtime(*mtimes):
     return None
 
 
+def validate_action_sequence(action_sequence):
+    n = len(action_sequence)
+    for a, action in enumerate(action_sequence):
+        action_type = action['type']
+        action_id = action['id']
+        if a == 0:
+            assert action_type == 'sample', ('The first action in the sequence must be sample, got %s.' %
+                action_type)
+        if a < n - 1:  # Not at final action
+            assert not action_type == 'parcellate', 'parcellate can only appear at the end of action_sequence'
+            next_action = action_sequence[a + 1]
+            next_action_type = next_action['type']
+
+            if action_type == 'sample':
+                assert next_action_type == 'align', ('Got invalid action sequence %s -> %s' %
+                    (action_type, next_action_type))
+                if 'sample_id' in next_action['kwargs']:
+                    assert next_action['kwargs']['sample_id'] == action_id, ('Got sample_id %s, but align expects '
+                        'sample_id %s.' % (action_id, next_action['kwargs']['sample_id']))
+            elif action_type == 'align':
+                assert next_action_type in ('evaluate', 'aggregate', 'parcellate'), ('Got invalid action sequence '
+                    '%s -> %s' % (action_type, next_action_type))
+                if 'alignment_id' in next_action['kwargs']:
+                    assert next_action['kwargs']['alignment_id'] == action_id, ('Got alignment_id %s, but %s expects '
+                        'alignment_id %s.' % (action_id, next_action_type, next_action['kwargs']['alignment_id']))
+            elif action_type == 'evaluate':
+                assert next_action_type in ('aggregate', 'parcellate'), ('Got invalid action sequence '
+                    '%s -> %s' % (action_type, next_action_type))
+                if 'evaluation_id' in next_action['kwargs']:
+                    assert next_action['kwargs']['evaluation_id'] == action_id, ('Got evaluation_id %s, but %s expects '
+                        'evaluation_id %s.' % (action_id, next_action_type, next_action['kwargs']['evaluation_id']))
+            elif action_type == 'aggregate':
+                assert next_action_type in ('parcellate', 'sample'), ('Got invalid action sequence %s -> %s' %
+                    (action_type, next_action_type))
+                if 'aggregation_id' in next_action['kwargs']:
+                    assert next_action['kwargs']['aggregation_id'] == action_id, ('Got aggregation_id %s, but %s '
+                        'expects aggregation_id %s.' % (action_id, next_action_type,
+                        next_action['kwargs']['aggregation_id']))
+
+
 def get_action(action_type, action_sequence):
-    action = None
     for action in action_sequence:
         if action['type'] == action_type:
             return action
-    return action
+    return None
+
+
+def get_action_attr(action_type, action_sequence, action_attr):
+    action = get_action(action_type, action_sequence)
+    if action is None:
+        return None
+    return action[action_attr]
 
 
 def is_stale(target_mtime, dep_mtime):
@@ -136,8 +182,8 @@ def check_deps(
         compressed=True
 ):
     if not len(action_sequence):
-        return -1, False
-    action = action_sequence[0]
+        return None, False
+    action = action_sequence[-1]  # Iterate from end
     action_type, action_id = action['type'], action['id']
     mtime = get_mtime(output_dir, action_type, action_id, compressed=compressed)
     exists = mtime is not None
@@ -148,7 +194,7 @@ def check_deps(
             _output_dir = join(grid_dir, grid_id)
             _dep_mtime, _ = check_deps(
                 _output_dir,
-                action_sequence[1:],
+                action_sequence[:-1],
                 compressed=compressed
             )
             if _dep_mtime == 1:
@@ -157,7 +203,7 @@ def check_deps(
                 return 1, exists
             dep_mtime = get_max_mtime(dep_mtime, _dep_mtime)
     else:
-        dep_mtime, _ = check_deps(output_dir, action_sequence[1:], compressed=True)
+        dep_mtime, _ = check_deps(output_dir, action_sequence[:-1], compressed=True)
         if dep_mtime == 1:
             return 1, exists
         if is_stale(mtime, dep_mtime):
