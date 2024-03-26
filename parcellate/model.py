@@ -7,6 +7,7 @@ import inspect
 import resource
 import yaml
 import numpy as np
+from scipy import signal
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from nilearn import image
@@ -428,6 +429,7 @@ def aggregate(
         evaluation_id=None,
         alignment_id=None,
         subnetwork_id=None,
+        kernel_radius=5,
         eps=1e-3,
         compress_outputs=None,
         dump_kwargs=True,
@@ -471,6 +473,7 @@ def aggregate(
             action_sequence=action_sequence,
             grid_params=grid_params,
             subnetwork_id=subnetwork_id,
+            weight_radius=kernel_radius,
             eps=eps,
             compress_outputs=compress_outputs
         )
@@ -480,7 +483,10 @@ def aggregate(
     output_path = get_path(output_dir, 'output', 'aggregate', aggregation_id, compressed=compress_outputs)
     evaluation_path = get_path(output_dir, 'evaluation', 'aggregate', aggregation_id)
 
-    grid_settings = process_grid_params(grid_params)
+    grid_settings = get_iterator_from_grid_params(grid_params)
+    grid_array, ix2val = get_grid_array_from_grid_params(grid_params)
+    val2ix = {x: {y: i for i, y in enumerate(ix2val[x])} for x in ix2val}
+    grid_keys = sorted(list(ix2val.keys()))
     results = []
     grid_ids = []
     scores = []
@@ -509,12 +515,19 @@ def aggregate(
                 raise ValueError(('No available selection criteria for grid_id %s (no alignment or evaluation '
                                   'data found). Aggregation failed.' % grid_id))
         scores.append(score)
+        ix = tuple([val2ix[x][grid_setting[x]] for x in grid_keys])
+        grid_array[ix] = score
     results = pd.concat(results, axis=0)
 
+    # Weighted average
+    if kernel_radius > 1:
+        grid_array = smooth(grid_array, kernel_radius=kernel_radius)
+
     # Select configuration
-    best_ix = np.argmax(scores)
-    best_id = grid_ids[best_ix]
-    best_score = scores[best_ix]
+    best_ix = np.unravel_index(np.argmax(grid_array), grid_array.shape)
+    best_setting = {x: ix2val[x][best_ix[i]] for i, x in enumerate(grid_keys)}
+    best_id = get_grid_id(best_setting)
+    best_score = grid_array[best_ix]
 
     results['selected'] = (results.grid_id == best_id) & (results.parcel_type != 'baseline')
     results.to_csv(evaluation_path, index=False)
@@ -614,7 +627,7 @@ def parcellate(
 
         # Core loop
         indent += 1
-        grid_settings = process_grid_params(grid_params)
+        grid_settings = get_iterator_from_grid_params(grid_params)
         for grid_setting in grid_settings:
             grid_id = get_grid_id(grid_setting)
 
@@ -973,8 +986,6 @@ def _get_atlas_score_from_df(df_scores, subnetwork_id=None, eps=1e-3):
     score = np.tanh(np.arctanh(scores * (1 - 2 * eps) + eps).mean())
 
     return score
-
-
 
 
 

@@ -5,27 +5,11 @@ import numpy as np
 from parcellate.constants import *
 
 
-def process_grid_params(grid_params):
+def get_iterator_from_grid_params(grid_params):
     _grid_params = {}
     if grid_params:
         for grid_param in grid_params:
-            vals = grid_params[grid_param]
-            _vals = []
-            for val in vals:
-                if isinstance(val, list):
-                    _val = []
-                    for v in val:
-                        vi = int(v)
-                        vf = float(v)
-                        if vi == vf :  # Integer
-                            _val.append(vi)
-                        else:
-                            _val.append(vf)
-                    __vals = np.arange(*_val).tolist()
-                else:
-                    __vals = [val]
-                _vals.extend(__vals)
-            _grid_params[grid_param] = _vals
+            _grid_params[grid_param] = get_grid_param_value_list(grid_params[grid_param])
     else:
         _grid_params = {'model': [0]}
     keys = sorted(list(_grid_params.keys()))
@@ -37,6 +21,45 @@ def process_grid_params(grid_params):
             row[key] = _x
 
         yield row
+
+def get_grid_array_from_grid_params(grid_params):
+    vals = {}
+    if grid_params:
+        for grid_param in grid_params:
+            vals[grid_param] = get_grid_param_value_list(grid_params[grid_param])
+
+    arr = np.full(tuple([len(vals[x]) for x in sorted(list(vals.keys()))]), np.nan)
+
+    return arr, vals
+
+
+def get_grid_param_value_list(vals):
+    _vals = []
+    for val in vals:
+        if isinstance(val, list):
+            _val = []
+            for v in val:
+                vi = int(v)
+                vf = float(v)
+                if vi == vf:  # Integer
+                    _val.append(vi)
+                else:
+                    _val.append(vf)
+            __vals = np.arange(*_val).tolist()
+        else:
+            __vals = [val]
+        _vals.extend(__vals)
+    return _vals
+
+
+def smooth(arr, kernel_radius=3):
+    out = np.zeros_like(arr)
+    if kernel_radius > 1:
+        indices = [list(range(x)) for x in arr.shape]
+        for index in itertools.product(*indices):
+            sel = tuple([slice(max(0, i - kernel_radius + 1), i + kernel_radius) for i in index])
+            out[index] = arr[sel].mean()
+    return out
 
 
 def candidate_name_sort_key(candidate_name):

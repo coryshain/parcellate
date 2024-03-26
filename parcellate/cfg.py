@@ -26,8 +26,6 @@ def get_grid_params(cfg):
     else:
         grid_params = None
 
-    assert not 'id' in grid_params, 'grid_params contained key "id", which is a reserved keyword'
-
     return grid_params
 
 
