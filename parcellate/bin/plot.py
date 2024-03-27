@@ -749,6 +749,7 @@ def _plot_grid(
     dfs = [df]
     if dfr is not None:
         dfs.append(dfr)
+    i = 0
     for i, _df in enumerate(dfs):
         x = _df.columns
         y = _df.mean(axis=0)
@@ -759,17 +760,24 @@ def _plot_grid(
             color = None
 
         if len(_df) > 1:
-            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, zorder=i)
+            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)
         if i == 0:
             linestyle = 'solid'
         else:
             linestyle = 'dotted'
         plt.plot(x, y, color=color, linestyle=linestyle, zorder=i)
 
-    if selected is not None:
-        x = selected.index
-        y = selected
-        plt.scatter(x, y, color='c', s=3, zorder=i+1)
+    if selected is not None and len(selected):
+        index = pd.Series(selected.index)
+        x = index.mean()
+        xerr = index.sem()
+        if not np.isfinite(xerr):
+            xerr = None
+        y = selected.mean()
+        yerr = selected.sem()
+        if not np.isfinite(yerr):
+            yerr = None
+        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='cs', linewidth=1, markersize=3, zorder=i+1)
 
     plt.xlabel(xlabel)
     if ylabel:
