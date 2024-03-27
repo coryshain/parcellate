@@ -844,7 +844,7 @@ def _get_atlas_score(
     )
 
     for p in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
-        ji = jaccard_score(reference_atlas > p, atlas > p)
+        ji = jaccard_score(reference_atlas > p, atlas > p, zero_division=0)
         row['jaccard_atpgt%s' % p] = ji
 
     return row
@@ -886,7 +886,11 @@ def _get_evaluation_contrasts(
             else:
                 _atlas = atlas > p
                 suffix = '_atpgt%s' % p
-            contrast = (_atlas * evaluation_atlas).sum() / _atlas.sum()
+            denom = _atlas.sum()
+            if denom:
+                contrast = (_atlas * evaluation_atlas).sum() / denom
+            else:
+                contrast = 0
             row['%s_contrast%s' % (evaluation_atlas_name, suffix)] = contrast
 
     return row
