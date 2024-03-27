@@ -28,8 +28,9 @@ from parcellate.util import *
 
 def sample(
         output_dir,
-        n_networks,
         functional_paths,
+        n_networks=50,
+        fwhm=None,
         sample_id=None,
         mask_path=None,
         standardize=True,
@@ -59,8 +60,9 @@ def sample(
     if dump_kwargs:
         kwargs = dict(
             output_dir=output_dir,
-            n_networks=n_networks,
             functional_paths=functional_paths,
+            n_networks=n_networks,
+            fwhm=fwhm,
             sample_id=sample_id,
             mask_path=mask_path,
             standardize=standardize,
@@ -87,6 +89,7 @@ def sample(
 
     input_data = InputData(
         functional_paths=functional_paths,
+        fwhm=fwhm,
         mask_path=mask_path,
         standardize=standardize,
         normalize=normalize,

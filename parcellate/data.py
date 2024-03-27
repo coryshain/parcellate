@@ -30,9 +30,9 @@ def minmax_normalize_array(arr, eps=1e-8, axis=None):
     return arr
 
 
-def get_nii(path, nii_cache=NII_CACHE, add_to_cache=True):
+def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE):
     if path not in nii_cache:
-        img = image.smooth_img(path, None)
+        img = image.smooth_img(path, fwhm)
         if add_to_cache:
             nii_cache[path] = img
     else:
@@ -40,12 +40,12 @@ def get_nii(path, nii_cache=NII_CACHE, add_to_cache=True):
     return img
 
 
-def get_atlas(atlas):
+def get_atlas(atlas, fwhm=None):
     if isinstance(atlas, str) and atlas.lower() == 'language':
         name = 'language'
         filename = 'LanA_n806.nii'
         with pkg_resources.as_file(pkg_resources.files(resources).joinpath(filename)) as path:
-            val = get_nii(path)
+            val = get_nii(path, fwhm=fwhm)
     elif isinstance(atlas, dict):
         keys = list(atlas.keys())
         assert len(keys) == 1, 'If reference_network is provided as a dict, must contain exactly one entry. ' + \
@@ -64,7 +64,7 @@ def get_atlas(atlas):
         else:
             path = None
     if isinstance(val, str):
-        val = get_nii(val)
+        val = get_nii(val, fwhm=fwhm)
     assert 'Nifti1Image' in type(val).__name__, \
         'Atlas must be either a string path or a Nifti-like image class. Got type %s.' % type(val)
 
@@ -155,10 +155,12 @@ class Data:
 
     def __init__(
             self,
-            nii_ref_path
+            nii_ref_path,
+            fwhm=None,
     ):
         self.nii_ref_path = nii_ref_path
-        self.nii_ref = get_nii(self.nii_ref_path)
+        self.fwhm = fwhm
+        self.nii_ref = get_nii(self.nii_ref_path, fwhm=self.fwhm)
         self.nii_ref_shape = self.nii_ref.shape[:3]
         self.mask = None
         self.set_mask_from_nii(None)
@@ -171,7 +173,7 @@ class Data:
         if mask_path is None:
             mask = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
         else:
-            mask = get_nii(mask_path)
+            mask = get_nii(mask_path, fwhm=self.fwhm)
         mask = image.get_data(mask) > 0.5
         self.mask = mask
 
@@ -222,6 +224,7 @@ class InputData(Data):
     def __init__(
             self,
             functional_paths,
+            fwhm=None,
             mask_path=None,
             standardize=True,
             normalize=False,
@@ -237,14 +240,14 @@ class InputData(Data):
             functional_paths = list(functional_paths)
         assert len(functional_paths), 'At least one functional run must be provided for parcellation.'
         nii_ref_path = functional_paths[0]
-        super().__init__(nii_ref_path)
+        super().__init__(nii_ref_path, fwhm=fwhm)
 
         # Load all data and aggregate the mask
         _functionals = []
         _mask = None
         for functional in functional_paths:
             if isinstance(functional, str):
-                functional = get_nii(functional)
+                functional = get_nii(functional, fwhm=self.fwhm)
             assert 'Nifti1Image' in type(
                 functional).__name__, 'Functional must be either a string path or a Nifti-like' + \
                                       'image class. Got type %s.' % type(functional)
@@ -307,6 +310,7 @@ class ReferenceData(Data):
     def __init__(
             self,
             reference_atlases=None,
+            fwhm=None,
             compress_outputs=True
     ):
 
@@ -324,14 +328,14 @@ class ReferenceData(Data):
         for i, reference_atlas in enumerate(reference_atlases):
             if isinstance(reference_atlases, dict):
                 reference_atlas = {reference_atlas: reference_atlases[reference_atlas]}
-            reference_atlas, reference_atlas_path, val = get_atlas(reference_atlas)
+            reference_atlas, reference_atlas_path, val = get_atlas(reference_atlas, fwhm=fwhm)
             if nii_ref_path is None:
                 nii_ref_path = reference_atlas_path
             reference_atlas_names.append(reference_atlas)
             _reference_atlases[reference_atlas] = val
         reference_atlases = _reference_atlases
 
-        super().__init__(nii_ref_path)
+        super().__init__(nii_ref_path, fwhm=fwhm)
 
         # Perform any post-processing and save reference/evaluation images
         for key in reference_atlases:
@@ -360,6 +364,7 @@ class EvaluationData(Data):
     def __init__(
             self,
             evaluation_atlases=None,
+            fwhm=None,
             compress_outputs=True
     ):
         if evaluation_atlases is None:
@@ -374,7 +379,7 @@ class EvaluationData(Data):
             for evaluation_atlas in evaluation_atlases[reference_atlas]:
                 if isinstance(evaluation_atlases[reference_atlas], dict):
                     evaluation_atlas = {evaluation_atlas: evaluation_atlases[reference_atlas][evaluation_atlas]}
-                evaluation_atlas, evaluation_atlas_path, val = get_atlas(evaluation_atlas)
+                evaluation_atlas, evaluation_atlas_path, val = get_atlas(evaluation_atlas, fwhm=fwhm)
                 if nii_ref_path is None:
                     nii_ref_path = evaluation_atlas_path
                 if reference_atlas not in _evaluation_atlases:
@@ -382,7 +387,7 @@ class EvaluationData(Data):
                 _evaluation_atlases[reference_atlas][evaluation_atlas] = val
         evaluation_atlases = _evaluation_atlases
 
-        super().__init__(nii_ref_path)
+        super().__init__(nii_ref_path, fwhm=fwhm)
 
         # Perform any post-processing and save evaluation images
         for reference_atlas in evaluation_atlases:
