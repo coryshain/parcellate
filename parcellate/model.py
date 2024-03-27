@@ -48,7 +48,7 @@ def sample(
 
     t0 = time.time()
 
-    print('%sSampling (sample_id=%s)' % (' ' * (indent * 2), sample_id))
+    stderr('%sSampling (sample_id=%s)\n' % (' ' * (indent * 2), sample_id))
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
@@ -105,17 +105,15 @@ def sample(
         dtype=np.uint8
     samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_samples, n_networks, n_voxels>
     for i in range(n_samples):
-        sys.stdout.write('\r%sSample %d/%d' % (' ' * (indent * 2), i + 1, n_samples))
-        sys.stdout.flush()
+        stderr('\r%sSample %d/%d' % (' ' * (indent * 2), i + 1, n_samples))
         m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
         _sample = m.fit_predict(timecourses)
         samples[:, i] = _sample
-    sys.stdout.write('\n')
-    sys.stdout.flush()
+    stderr('\n')
     samples = input_data.unflatten(samples)
     samples.to_filename(output_path)
 
-    print('%sSampling time: %ds' % (' ' * (indent * 2), time.time() - t0))
+    stderr('%sSampling time: %ds\n' % (' ' * (indent * 2), time.time() - t0))
 
 
 def align(
@@ -136,7 +134,7 @@ def align(
 
     t0 = time.time()
 
-    print('%sAligning (alignment_id=%s)' % (' ' * (indent * 2), alignment_id))
+    stderr('%sAligning (alignment_id=%s)\n' % (' ' * (indent * 2), alignment_id))
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
@@ -281,7 +279,7 @@ def align(
     _parcellation = reference_data.unflatten(parcellation.T)
     _parcellation.to_filename(output_path)
 
-    print('%sAlignment time: %ds' % (' ' * (indent * 2), time.time() - t0))
+    stderr('%sAlignment time: %ds\n' % (' ' * (indent * 2), time.time() - t0))
 
 
 def evaluate(
@@ -300,7 +298,7 @@ def evaluate(
 
     t0 = time.time()
 
-    print('%sEvaluating (evaluation_id=%s)' % (' ' * (indent * 2), evaluation_id))
+    stderr('%sEvaluating (evaluation_id=%s)\n' % (' ' * (indent * 2), evaluation_id))
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
@@ -362,7 +360,7 @@ def evaluate(
         for y in candidates[x]:
             candidates[x][y] = reference_data.flatten(candidates[x][y])
 
-    print(' ' * (indent * 2) + 'Results:')
+    stderr(' ' * (indent * 2) + 'Results:\n')
     results = []
     for reference_atlas_name in evaluation_atlases:
         # Score reference atlas as if it were a candidate parcellation (baseline)
@@ -378,7 +376,7 @@ def evaluate(
         )
         row['parcel_type'] = 'baseline'
         results.append(row)
-        print(_pretty_print_evaluation_row(row, indent=indent + 1))
+        stderr(_pretty_print_evaluation_row(row, indent=indent + 1) + '\n')
 
         # Score evaluation atlases as if they were candidate parcellations (baseline)
         for evaluation_atlas_name in evaluation_atlases[reference_atlas_name]:
@@ -414,12 +412,12 @@ def evaluate(
                 row['parcel_type'] = 'subnetwork%d' % c
             results.append(row)
             if c == 0 or (len(candidate_names) > 2):
-                print(_pretty_print_evaluation_row(row, indent=indent + 1))
+                stderr(_pretty_print_evaluation_row(row, indent=indent + 1) + '\n')
 
     results = pd.DataFrame(results)
     results.to_csv(output_path, index=False)
 
-    print('%sEvaluation time: %ds' % (' ' * (indent * 2), time.time() - t0))
+    stderr('%sEvaluation time: %ds\n' % (' ' * (indent * 2), time.time() - t0))
 
 
 def aggregate(
@@ -440,7 +438,7 @@ def aggregate(
     assert isinstance(grid_params, dict), 'grid_params must be given as a dict'
 
     t0 = time.time()
-    print('%sAggregating grid' % (' ' * (indent * 2)))
+    stderr('%sAggregating grid\n' % (' ' * (indent * 2)))
     indent += 1
 
     _alignment_id = get_action_attr('align', action_sequence, 'id')
@@ -563,9 +561,9 @@ def aggregate(
     with open(output_path, 'w') as f:
         yaml.safe_dump(parcellate_kwargs, f, sort_keys=False)
 
-    print('%sBest grid_id: %s | atlas score: %0.3f' % (' ' * (indent * 2), best_id, best_score))
+    stderr('%sBest grid_id: %s | atlas score: %0.3f\n' % (' ' * (indent * 2), best_id, best_score))
 
-    print('%sAggregation time: %ds' % (' ' * (indent * 2), time.time() - t0))
+    stderr('%sAggregation time: %ds\n' % (' ' * (indent * 2), time.time() - t0))
 
 
 def parcellate(
@@ -585,7 +583,7 @@ def parcellate(
     validate_action_sequence(action_sequence)
 
     t0 = time.time()
-    print('%sParcellating' % (' ' * (indent * 2)))
+    stderr('%sParcellating\n' % (' ' * (indent * 2)))
     indent += 1
 
     sample_id = get_action_attr('sample', action_sequence, 'id')
@@ -624,7 +622,7 @@ def parcellate(
 
     # Grid search
     if use_grid and grid_params:
-        print('%sGrid searching' % (' ' * (indent * 2)))
+        stderr('%sGrid searching\n' % (' ' * (indent * 2)))
 
         # Core loop
         indent += 1
@@ -632,7 +630,7 @@ def parcellate(
         for grid_setting in grid_settings:
             grid_id = get_grid_id(grid_setting)
 
-            print('%sGrid id: %s' % (' ' * (indent * 2), grid_id))
+            stderr('%sGrid id: %s\n' % (' ' * (indent * 2), grid_id))
 
             # Update kwargs
             _output_dir = get_path(output_dir, 'subdir', 'grid', grid_id)
@@ -690,7 +688,7 @@ def parcellate(
             ))
             aggregate(**_aggregate_kwargs)
         else:
-            print('%sAggregation exists. Skipping. To re-aggregate, run with overwrite=True.' %
+            stderr('%sAggregation exists. Skipping. To re-aggregate, run with overwrite=True.\n' %
                   (' ' * (indent * 2)))
         aggregation_output_path = get_path(output_dir, 'output', 'aggregate', aggregation_id)
         with open(aggregation_output_path, 'r') as f:
@@ -755,7 +753,7 @@ def parcellate(
                     ))
                     sample(**action_kwargs, indent=indent)
                 else:
-                    print('%sSample exists. Skipping. To resample, run with overwrite=True.' %
+                    stderr('%sSample exists. Skipping. To resample, run with overwrite=True.\n' %
                           (' ' * (indent * 2)))
             elif action_type == 'align':
                 if do_action:
@@ -766,7 +764,7 @@ def parcellate(
                     ))
                     align(**action_kwargs, indent=indent)
                 else:
-                    print('%sAlignment exists. Skipping. To re-align, run with overwrite=True.' %
+                    stderr('%sAlignment exists. Skipping. To re-align, run with overwrite=True.\n' %
                           (' ' * (indent * 2)))
             elif action_type == 'evaluate':
                 if do_action:
@@ -777,7 +775,7 @@ def parcellate(
                     ))
                     evaluate(**action_kwargs, indent=indent)
                 else:
-                    print('%sEvaluation exists. Skipping. To re-evaluate, run with overwrite=True.' %
+                    stderr('%sEvaluation exists. Skipping. To re-evaluate, run with overwrite=True.\n' %
                           (' ' * (indent * 2)))
             elif action_type == 'parcellate':
                 # Copy final files to destination
@@ -801,7 +799,7 @@ def parcellate(
                         if filename.endswith(suffix) or (not results_copied and filename == PATHS['align']['evaluation']):
                             shutil.copy(join(alignment_dir, filename), join(parcellation_dir, filename))
                 else:
-                    print('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.' %
+                    stderr('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.\n' %
                           (' ' * (indent * 2)))
             else:
                 raise ValueError('Unrecognized action_type %s' % action_type)
@@ -809,7 +807,7 @@ def parcellate(
 
         assert os.path.exists(output_path)
 
-    print('%sTotal time elapsed: %ds' % (' ' * (indent * 2), time.time() - t0))
+    stderr('%sTotal time elapsed: %ds\n' % (' ' * (indent * 2), time.time() - t0))
 
 
 

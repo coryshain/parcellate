@@ -1,8 +1,14 @@
+import sys
 import os
 import itertools
 import numpy as np
 
 from parcellate.constants import *
+
+
+def stderr(s):
+    sys.stderr.write(s)
+    sys.stderr.flush()
 
 
 def get_iterator_from_grid_params(grid_params):
