@@ -12,6 +12,8 @@ ACTION_VERB_TO_NOUN = dict(
     aggregate='aggregation',
     parcellate='parcellation',
 )
+REFERENCE_ATLAS_PREFIX = 'reference_atlas_'
+EVALUATION_ATLAS_PREFIX = 'evaluation_atlas_'
 PATHS = dict(
     sample=dict(
         kwargs='sample_kwargs.yml',
@@ -39,6 +41,7 @@ PATHS = dict(
         kwargs='parcellate_kwargs.yml',
         subdir=ACTION_VERB_TO_NOUN['parcellate'],
         output='parcellation%s',
+        evaluation='evaluation.csv'
     ),
     grid=dict(
         subdir='grid'

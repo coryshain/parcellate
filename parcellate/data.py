@@ -10,7 +10,7 @@ from scipy import stats, signal, optimize
 from sklearn.preprocessing import normalize as sk_normalize
 from nilearn import image, masking, plotting
 
-from parcellate.util import join, get_suffix
+from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, join, get_suffix
 
 NII_CACHE = {}  # Map from paths to NII objects
 
@@ -353,7 +353,7 @@ class ReferenceData(Data):
         reference_atlases = self.reference_atlases
         for key in reference_atlases:
             val = self.unflatten(reference_atlases[key])
-            val.to_filename(join(output_dir, 'reference_atlas_%s%s' % (key, suffix)))
+            val.to_filename(join(output_dir, '%s%s%s' % (REFERENCE_ATLAS_PREFIX, key, suffix)))
 
 
 class EvaluationData(Data):
@@ -407,4 +407,4 @@ class EvaluationData(Data):
             _evaluation_atlases = evaluation_atlases[reference_atlas]
             for key in _evaluation_atlases:
                 val = self.unflatten(_evaluation_atlases[key])
-                val.to_filename(join(output_dir, 'evaluation_atlas_%s_%s%s' % (reference_atlas, key, suffix)))
+                val.to_filename(join(output_dir, '%s%s_%s%s' % (EVALUATION_ATLAS_PREFIX, reference_atlas, key, suffix)))

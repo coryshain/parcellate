@@ -10,6 +10,7 @@ import numpy as np
 from scipy import signal
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.metrics import jaccard_score
 from nilearn import image
 from fast_poibin import PoiBin
 
@@ -329,9 +330,9 @@ def evaluate(
     reference_atlases = []
     candidates = {}
     for reference_atlas in evaluation_atlases:
-        reference_atlas_path = join(alignment_dir, 'reference_atlas_%s.nii' % reference_atlas)
+        reference_atlas_path = join(alignment_dir, '%s%s.nii' % (REFERENCE_ATLAS_PREFIX, reference_atlas))
         if not os.path.exists(reference_atlas_path):
-            reference_atlas_path = join(alignment_dir, 'reference_atlas_%s.nii.gz' % reference_atlas)
+            reference_atlas_path = join(alignment_dir, '%s%s.nii.gz' % (REFERENCE_ATLAS_PREFIX, reference_atlas))
         assert os.path.exists(reference_atlas_path), 'Reference atlas %s not found' % reference_atlas_path
         reference_atlases.append({reference_atlas: reference_atlas_path})
 
@@ -367,7 +368,7 @@ def evaluate(
         # Score reference atlas as if it were a candidate parcellation (baseline)
         reference_atlas = reference_atlases[reference_atlas_name]
         atlas = reference_atlas
-        atlas_name = 'reference_atlas_%s' % reference_atlas_name
+        atlas_name = '%s%s' % (REFERENCE_ATLAS_PREFIX, reference_atlas_name)
         row = _get_evaluation_row(
             atlas,
             atlas_name,
@@ -645,25 +646,15 @@ def parcellate(
                     _kwargs.update(_grid_setting)
                     _action_sequence.append(action)
 
-            mtime, exists = check_deps(
+            # Recursion bottoms out since grid_params is None
+            parcellate(
                 _output_dir,
                 _action_sequence,
-                compressed=True
+                eps=eps,
+                compress_outputs=compress_outputs,
+                overwrite=overwrite,
+                indent=indent + 1
             )
-            stale = mtime == 1
-            if overwrite or stale or not exists:
-                # Recursion bottoms out since grid_params is None
-                parcellate(
-                    _output_dir,
-                    _action_sequence,
-                    eps=eps,
-                    compress_outputs=compress_outputs,
-                    overwrite=overwrite,
-                    indent=indent + 1
-                )
-            else:
-                print('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.' %
-                      (' ' * ((indent + 1) * 2)))
 
         indent -= 1
 
@@ -706,40 +697,22 @@ def parcellate(
             parcellate_kwargs = yaml.safe_load(f)
 
         # Parcellate
-        action = None
-        _action_sequence = []
-        for action in action_sequence:
-            _action_sequence.append(action)
-            if action['type'] == 'parcellate':
-                break
-        assert action is not None and action['type'] == 'parcellate', ('action type "parcellate" not found in '
-            'action_sequence')
-        mtime, exists = check_deps(
-            output_dir,
-            _action_sequence,
-            compressed=True
-        )
-        stale = mtime == 1
-        if overwrite or stale or not exists:
-            kwargs_update = action['kwargs']
-            for action in parcellate_kwargs['action_sequence']:
-                if action['type'] != 'parcellate':
-                    _kwarg_keys = set(inspect.signature(ACTIONS[action['type']]).parameters.keys())
-                    _kwargs_update = {x: kwargs_update[x] for x in kwargs_update if x in _kwarg_keys}
-                    action['kwargs'].update(_kwargs_update)
-            action_prefix = []
-            for action in action_sequence[:-1]:  # Add dependencies to grid, ignoring last ('parcellate') action
-                action_prefix.append(dict(
-                    type=action['type'],
-                    id=action['id'],
-                    kwargs={}
-                ))
-            parcellate_kwargs['action_sequence'] = action_prefix + parcellate_kwargs['action_sequence']
-            parcellate_kwargs['dump_kwargs'] = False  # Don't let recursive call overwrite top-level kwargs file
-            parcellate(**parcellate_kwargs)
-        else:
-            print('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.' %
-                  (' ' * (indent * 2)))
+        kwargs_update = action['kwargs']
+        for action in parcellate_kwargs['action_sequence']:
+            if action['type'] != 'parcellate':
+                _kwarg_keys = set(inspect.signature(ACTIONS[action['type']]).parameters.keys())
+                _kwargs_update = {x: kwargs_update[x] for x in kwargs_update if x in _kwarg_keys}
+                action['kwargs'].update(_kwargs_update)
+        action_prefix = []
+        for action in action_sequence[:-1]:  # Add dependencies to grid, ignoring last ('parcellate') action
+            action_prefix.append(dict(
+                type=action['type'],
+                id=action['id'],
+                kwargs={}
+            ))
+        parcellate_kwargs['action_sequence'] = action_prefix + parcellate_kwargs['action_sequence']
+        parcellate_kwargs['dump_kwargs'] = False  # Don't let recursive call overwrite top-level kwargs file
+        parcellate(**parcellate_kwargs)
     else:
         action_sequence_full = action_sequence
         _action_sequence = []
@@ -756,13 +729,16 @@ def parcellate(
         aggregation_id = get_action_attr('aggregate', action_sequence_full, 'id')
 
         n = len(action_sequence)
+        N = len(action_sequence_full)
         for a, action in enumerate(action_sequence):
             action_type = action['type']
             action_kwargs = action['kwargs']
 
+            e = N - n + a + 1
+
             mtime, exists = check_deps(
                 output_dir,
-                action_sequence_full[:-n+a+1],
+                action_sequence_full[:e],
                 compressed=True
             )
             stale = mtime == 1
@@ -824,6 +800,9 @@ def parcellate(
                     for filename in os.listdir(alignment_dir):
                         if filename.endswith(suffix) or (not results_copied and filename == PATHS['align']['evaluation']):
                             shutil.copy(join(alignment_dir, filename), join(parcellation_dir, filename))
+                else:
+                    print('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.' %
+                          (' ' * (indent * 2)))
             else:
                 raise ValueError('Unrecognized action_type %s' % action_type)
 
@@ -864,6 +843,10 @@ def _get_atlas_score(
         n_voxels=n_voxels
     )
 
+    for p in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        ji = jaccard_score(reference_atlas > p, atlas > p)
+        row['jaccard_atpgt%s' % p] = ji
+
     return row
 
 
@@ -888,13 +871,15 @@ def _get_evaluation_contrasts(
         reference_atlas_name,
         evaluation_atlases
 ):
-    atlas = minmax_normalize_array(atlas)
+    m, M = atlas.min(), atlas.max()
+    if m < 0 or M > 1:
+        atlas = minmax_normalize_array(atlas)
     row = {}
     _evaluation_atlases = evaluation_atlases[reference_atlas_name]
     evaluation_atlas_names = list(_evaluation_atlases.keys())
     for evaluation_atlas_name in evaluation_atlas_names:
         evaluation_atlas = _evaluation_atlases[evaluation_atlas_name]
-        for p in (None, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        for p in (None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
             if p is None:
                 _atlas = atlas
                 suffix = ''
