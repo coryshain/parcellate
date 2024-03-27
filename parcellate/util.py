@@ -52,6 +52,12 @@ def get_grid_param_value_list(vals):
     return _vals
 
 
+def get_grid_id(grid_setting):
+    grid_id = '_'.join(['%s%s' % (x, grid_setting[x]) for x in grid_setting])
+
+    return grid_id
+
+
 def smooth(arr, kernel_radius=3):
     out = np.zeros_like(arr)
     if kernel_radius > 1:
@@ -93,11 +99,6 @@ def get_suffix(compressed):
         suffix += '.gz'
     return suffix
 
-
-def get_grid_id(grid_setting):
-    grid_id = '_'.join(['%s%s' % (x, grid_setting[x]) for x in grid_setting])
-
-    return grid_id
 
 
 def get_path(output_dir, path_type, action_type, action_id, compressed=True):

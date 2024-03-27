@@ -67,6 +67,9 @@ def plot_atlases(
         reference_atlas_names=None,
         evaluation_atlas_names=None
 ):
+    if isinstance(cfg_paths, str):
+        cfg_paths = [cfg_paths]
+
     binary_dir = join(dirname(dirname(dirname(__file__))), 'resources', 'surfice', 'Surf_Ice')
     assert os.path.exists(binary_dir), ('Surf Ice directory %s not found. Install using '
         '``python -m parcellate.bin.install_surf_ice``.' % binary_dir)
@@ -359,6 +362,8 @@ def plot_performance(
         evaluation_atlas_names=None,
         plot_dir=join('plots', 'performance')
 ):
+    if isinstance(cfg_paths, str):
+        cfg_paths = [cfg_paths]
     if isinstance(parcellation_ids, str):
         parcellation_ids = [parcellation_ids]
 
@@ -378,6 +383,7 @@ def plot_performance(
                 df = pd.read_csv(df_path)
                 df['cfg_path'] = cfg_path
                 dfs[parcellation_id].append(df)
+
     for parcellation_id in dfs:
         df = pd.concat(dfs[parcellation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
@@ -392,7 +398,7 @@ def plot_performance(
                 # Similarity to reference
                 _df = df[(df.parcel == atlas_name)]
                 cols = ['atlas_score'] + ['jaccard%s' % x for x in SUFFIX2NAME]
-                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename, axis=1)
+                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                 colors = ['m']
                 xlab = None
                 ylab = 'Similarity'
@@ -415,8 +421,8 @@ def plot_performance(
                 cols = []
                 for evaluation_atlas_name in _evaluation_atlas_names:
                     cols.append('%s_score' % evaluation_atlas_name)
-                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename, axis=1)
-                __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename, axis=1)
+                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                 ylab = 'Similarity'
                 xlab = None
                 colors = ['c', 'm']
@@ -436,9 +442,9 @@ def plot_performance(
                 # Evaluation contrast size
                 for evaluation_atlas_name in _evaluation_atlas_names:
                     cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in [''] + list(SUFFIX2NAME.keys())]
-                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename, axis=1)
-                    __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename, axis=1)
-                    ylab = '%s contrast (PSC)' % evaluation_atlas_name
+                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    ylab = '%s Contrast' % evaluation_atlas_name
                     xlab = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
@@ -542,7 +548,7 @@ def _plot_performance(
     return plt.gcf()
 
 
-def _rename(x):
+def _rename_performance(x):
     for suffix in SUFFIX2NAME:
         if x.endswith(suffix):
             return SUFFIX2NAME[suffix]
@@ -570,46 +576,241 @@ def _rename(x):
 ######################################
 
 
-def plot_grids(
-        cfg_paths,
-        dimensions=None,
-        reference_atlases=None,
-        evaluation_atlases=None,
-        aggregation_id='main',
-        output_dir='parcellate_plots'
-):
-    # TODO
-    if dimensions is None:
-        dimensions = []
-    if reference_atlases is None:
-        reference_atlases = []
-    if evaluation_atlases is None:
-        evaluation_atlases = {}
-    if isinstance(cfg_paths, str):
-        cfg_paths = [cfg_paths]
-    for cfg_path in cfg_paths:
-        cfg = get_cfg(cfg_path)
-        output_dir = cfg['output_dir']
-        compressed = cfg.get('compress_outputs', True)
-        df_path = get_aggregation_path(output_dir, aggregation_id=aggregation_id)
-        df = pd.read_csv(df_path)
-        print(df)
-
-
 def plot_grid(
         cfg_paths,
-        dimension,
-        reference_atlas,
-        evaluation_atlas,
-        aggregation_id,
-        output_dir=join('plots', 'performance')
+        aggregation_ids=None,
+        dimensions=None,
+        reference_atlas_names=None,
+        evaluation_atlas_names=None,
+        plot_dir=join('plots', 'grid')
 ):
     # TODO
-    ...
+    if isinstance(cfg_paths, str):
+        cfg_paths = [cfg_paths]
+    if isinstance(aggregation_ids, str):
+        aggregation_ids = [aggregation_ids]
+    if isinstance(dimensions, str):
+        dimensions = [dimensions]
+    if isinstance(reference_atlas_names, str):
+        reference_atlas_names = [reference_atlas_names]
+    if isinstance(evaluation_atlas_names, str):
+        evaluation_atlas_names = [evaluation_atlas_names]
+
+    dfs = {}
+    grid_params = None
+    for cfg_path in cfg_paths:
+        cfg = get_cfg(cfg_path)
+        if grid_params is None:
+            grid_params = cfg['grid']
+        if aggregation_ids is None:
+            _aggregation_ids = list(cfg['parcellate'].keys())
+        else:
+            _aggregation_ids = aggregation_ids
+        output_dir = cfg['output_dir']
+        for aggregation_id in _aggregation_ids:
+            df_path = get_path(output_dir, 'evaluation', 'aggregate', aggregation_id)
+            if os.path.exists(df_path):
+                if aggregation_id not in dfs:
+                    dfs[aggregation_id] = []
+                df = pd.read_csv(df_path)
+                df['cfg_path'] = cfg_path
+                dfs[aggregation_id].append(df)
+
+    _, grid_dict = get_grid_array_from_grid_params(grid_params)
+    _dimensions = list(grid_dict.keys())
+    _dimensions_all = _dimensions
+    if dimensions:
+        _dimensions = [x for x in dimensions if x in _dimensions]
+
+    for aggregation_id in dfs:
+        df = pd.concat(dfs[aggregation_id], axis=0)
+        atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
+        _reference_atlas_names = df['atlas'].unique().tolist()
+        if reference_atlas_names is None:
+            _reference_atlas_names = df['atlas'].unique().tolist()
+        else:
+            _reference_atlas_names = [x for x in reference_atlas_names if x in _reference_atlas_names]
+
+        for atlas_name in atlas_names:
+            for reference_atlas_name in _reference_atlas_names:
+                for dimension in _dimensions:
+                    _dimensions_other = [x for x in _dimensions if x != dimension]
+                    # Similarity to reference
+                    if dimension not in df:
+                        df[dimension] = df.grid_id.apply(_get_param_value, args=(dimension,))
+                    perf_col = 'atlas_score'
+                    _df = df[(df.parcel == atlas_name)]
+                    _df = _df[_df.atlas == reference_atlas_name]
+                    selected = _df[_df.selected][[dimension, perf_col]]
+                    selected = selected.set_index(dimension)[perf_col]
+                    __df = _df.pivot(
+                        columns=[dimension] + _dimensions_other,
+                        index='cfg_path',
+                        values=perf_col
+                    )
+                    __df.columns.name = _rename_grid(__df.columns.name)
+
+                    fig = _plot_grid(
+                        __df,
+                        selected=selected,
+                        colors=['m'],
+                        ylabel=_rename_grid(perf_col)
+                    )
+
+                    if not os.path.exists(plot_dir):
+                        os.makedirs(plot_dir)
+                    fig.savefig(
+                        join(plot_dir, '%s_v_reference_%s_sim.png' % (atlas_name, reference_atlas_name)),
+                        dpi=300
+                    )
+
+                    # Similarity to evaluation
+                    _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
+                    _dfr = _dfr[_dfr.atlas == reference_atlas_name]
+                    _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
+                    if evaluation_atlas_names is not None:
+                        _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
+                    for evaluation_atlas_name in _evaluation_atlas_names:
+                        perf_col = '%s_score' % evaluation_atlas_name
+                        selected = _df[_df.selected][[dimension, perf_col]]
+                        selected = selected.set_index(dimension)[perf_col]
+                        __df = _df.pivot(
+                            columns=[dimension] + _dimensions_other,
+                            index='cfg_path',
+                            values=perf_col
+                        )
+                        __df.columns.name = _rename_grid(__df.columns.name)
+                        __dfr = _dfr.pivot(
+                            columns=[dimension] + _dimensions_other,
+                            index='cfg_path',
+                            values=perf_col
+                        )
+                        __dfr.columns.name = _rename_grid(__dfr.columns.name)
+
+                        fig = _plot_grid(
+                            __df,
+                            dfr=__dfr,
+                            selected=selected,
+                            colors=['m', 'gray'],
+                            ylabel=_rename_grid(perf_col)
+                        )
+
+                        if not os.path.exists(plot_dir):
+                            os.makedirs(plot_dir)
+                        fig.savefig(
+                            join(plot_dir, '%s_v_evaluation_%s_sim.png' % (atlas_name, evaluation_atlas_name)),
+                            dpi=300
+                        )
+
+                        perf_col = '%s_contrast' % evaluation_atlas_name
+                        selected = _df[_df.selected][[dimension, perf_col]]
+                        selected = selected.set_index(dimension)[perf_col]
+                        __df = _df.pivot(
+                            columns=[dimension] + _dimensions_other,
+                            index='cfg_path',
+                            values=perf_col
+                        )
+                        __df.columns.name = _rename_grid(__df.columns.name)
+                        __dfr = _dfr.pivot(
+                            columns=[dimension] + _dimensions_other,
+                            index='cfg_path',
+                            values=perf_col
+                        )
+                        __dfr.columns.name = _rename_grid(__dfr.columns.name)
+
+                        fig = _plot_grid(
+                            __df,
+                            dfr=__dfr,
+                            selected=selected,
+                            colors=['m', 'gray'],
+                            ylabel=_rename_grid(perf_col)
+                        )
+
+                        if not os.path.exists(plot_dir):
+                            os.makedirs(plot_dir)
+                        fig.savefig(
+                            join(plot_dir, '%s_%s_contrast.png' % (atlas_name, evaluation_atlas_name)),
+                            dpi=300
+                        )
 
 
+def _plot_grid(
+        df,
+        dfr=None,
+        selected=None,
+        colors=None,
+        ylabel=None,
+        width=4,
+        height=3,
+):
+    plt.close('all')
+    xlabel = df.columns.name
+
+    dfs = [df]
+    if dfr is not None:
+        dfs.append(dfr)
+    for i, _df in enumerate(dfs):
+        x = _df.columns
+        y = _df.mean(axis=0)
+        yerr = _df.sem(axis=0)
+        if colors and i < len(colors):
+            color = colors[i]
+        else:
+            color = None
+
+        if len(_df) > 1:
+            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, zorder=i)
+        if i == 0:
+            linestyle = 'solid'
+        else:
+            linestyle = 'dotted'
+        plt.plot(x, y, color=color, linestyle=linestyle, zorder=i)
+
+    if selected is not None:
+        x = selected.index
+        y = selected
+        plt.scatter(x, y, color='c', s=3, zorder=i+1)
+
+    plt.xlabel(xlabel)
+    if ylabel:
+        plt.ylabel(ylabel)
+
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
+    plt.gca().axhline(y=0, lw=1, c='k', alpha=1)
+    plt.gcf().set_size_inches(width, height)
+    plt.tight_layout()
+
+    return plt.gcf()
 
 
+def _get_param_value(s, grid_id):
+    val = re.search('%s([^_]+)' % grid_id, s).group(1)
+    try:
+        val_i = int(val)
+        val_f = float(val)
+        if val_i == val_f:
+            return val_i
+        return val_f
+    except TypeError:
+        pass
+
+    return val
+
+
+def _rename_grid(x):
+    for suffix in SUFFIX2NAME:
+        if x.endswith(suffix):
+            return SUFFIX2NAME[suffix]
+    if x == 'atlas_score':
+        return 'Similarity to Reference'
+    if x == 'n_networks':
+        return 'N Networks'
+    if x.endswith('_score'):
+        return 'Similarity to %s' % x[:-6]
+    if x.endswith('_contrast'):
+        return '%s Contrast' % x[:-9]
+    return x
 
 
 
@@ -627,49 +828,59 @@ if __name__ == '__main__':
     argparser.add_argument('cfg_paths', nargs='+', help=textwrap.dedent('''\
         Path(s) to parcellate config files (config.yml) to plot.'''
     ))
-    argparser.add_argument('-t', '--plot_type', default='all', help=textwrap.dedent('''\
+    argparser.add_argument('-t', '--plot_type', nargs='+', default=['all'], help=textwrap.dedent('''\
         Type of plot to generate. One of ``atlas``, ``performance``, ``grid``, or ``all``.
     '''))
     argparser.add_argument('-p', '--parcellation_ids', nargs='+', default=None, help=textwrap.dedent('''\
-        ID(s) of parcellation to use for plotting. If None, use all available parcellations.
+        Name(s) of parcellation(s) to use for plotting. If None, use all available parcellations.
+    '''))
+    argparser.add_argument('-a', '--aggregation_ids', nargs='+', default=None, help=textwrap.dedent('''\
+        Name(s) of aggregation(s) to use for plotting. If None, use all available parcellations.
     '''))
     argparser.add_argument('-r', '--reference_atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
-        Name of reference atlas(es) to use for plotting. If None, use all available reference atlases.'''
+        Name(s) of reference atlas(es) to use for plotting. If None, use all available reference atlases.'''
     ))
     argparser.add_argument('-e', '--evaluation_atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
-        Name of evaluation atlas(es) to use for plotting. If None, use all available evaluation atlases.'''
+        Name(s) of evaluation atlas(es) to use for plotting. If None, use all available evaluation atlases.'''
     ))
     argparser.add_argument('-d', '--dimensions', nargs='+', default=None, help=textwrap.dedent('''\
-        Name of grid-searched dimension(s) to plot. If None, use all available dimensions.'''
+        Name(s) of grid-searched dimension(s) to plot. If None, use all available dimensions.'''
     ))
+    argparser.add_argument('-o', '--output_dir', default='plots', help=textwrap.dedent('''\
+        Output directory for performance and grid plots (atlases are saved in each model directory).
+    '''))
     args = argparser.parse_args()
 
     cfg_paths = args.cfg_paths
-    plot_type = args.plot_type
+    plot_type = set(args.plot_type)
     parcellation_ids = args.parcellation_ids
+    aggregation_ids = args.aggregation_ids
     reference_atlase_names = args.reference_atlas_names
     evaluation_atlase_names = args.evaluation_atlas_names
     dimensions = args.dimensions
+    output_dir = args.output_dir
 
-    if plot_type in ('atlas', 'all'):
+    if plot_type & {'atlas', 'all'}:
         plot_atlases(
             cfg_paths,
             parcellation_ids,
             reference_atlase_names,
             evaluation_atlase_names
         )
-    if plot_type in ('performance', 'all'):
+    if plot_type  & {'performance', 'all'}:
         plot_performance(
             cfg_paths,
             parcellation_ids=parcellation_ids,
             reference_atlas_names=reference_atlase_names,
-            evaluation_atlas_names=evaluation_atlase_names
+            evaluation_atlas_names=evaluation_atlase_names,
+            plot_dir=join(output_dir, 'performance')
         )
-    if plot_type in ('grid', 'all'):
-        plot_grids(
+    if plot_type & {'grid', 'all'}:
+        plot_grid(
             cfg_paths,
+            aggregation_ids=aggregation_ids,
             dimensions=dimensions,
-            reference_atlases=reference_atlase_names,
-            evaluation_atlases=evaluation_atlase_names,
-            output_dir='parcellate_plots'
+            reference_atlas_names=reference_atlase_names,
+            evaluation_atlas_names=evaluation_atlase_names,
+            plot_dir=join(output_dir, 'grid')
         )
