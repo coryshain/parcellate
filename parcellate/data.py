@@ -18,7 +18,9 @@ NII_CACHE = {}  # Map from paths to NII objects
 
 
 def standardize_array(arr, axis=-1):
-    return (arr - arr.mean(axis=axis, keepdims=True)) / arr.std(axis=axis, keepdims=True)
+    denom = arr.std(axis=axis, keepdims=True)
+    denom = np.where(np.isfinite(denom), denom, np.ones_like(denom))
+    return (arr - arr.mean(axis=axis, keepdims=True)) / denom
 
 
 def detrend_array(arr, axis=1):
