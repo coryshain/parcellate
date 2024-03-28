@@ -36,7 +36,7 @@ if __name__ == '__main__':
         stale results is never correct behavior.\
         '''
     ))
-    argparser.add_argument('-p', '--purge_bad_nii', action='store_true', help=textwrap.dedent('''\
+    argparser.add_argument('-P', '--purge_bad_nii', action='store_true', help=textwrap.dedent('''\
         Whether to first purge any badly formatted NIFTI files from the model directory. This is useful for 
         resumption of models that may have been interrupted during I/O, since it forces rebuild of any corrupt
         outputs. But it creates initial overhead by requiring loading of lots of NIFTIs in order to check them.\
