@@ -1,5 +1,7 @@
 import sys
 import os
+import textwrap
+
 try:
     import importlib.resources as pkg_resources
 except ImportError:
@@ -10,7 +12,7 @@ from scipy import stats, signal, optimize
 from sklearn.preprocessing import normalize as sk_normalize
 from nilearn import image, masking, plotting
 
-from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, join, get_suffix
+from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, join, get_suffix, stderr
 
 NII_CACHE = {}  # Map from paths to NII objects
 
@@ -119,6 +121,23 @@ def align_samples(parcellations, ref_ix, w=None):
     parcellation = parcellation / denom
 
     return parcellation
+
+
+def purge_bad_nii(path, compressed=True):
+    if os.path.exists(path):
+        suffix = get_suffix(compressed)
+        for sub in os.listdir(path):
+            _path = os.path.join(path, sub)
+            if os.path.isdir(_path):
+                purge_bad_nii(_path, compressed=compressed)
+            elif _path.endswith(suffix):
+                try:
+                    image.load_img(_path)
+                except Exception as e:
+                    stderr('Removing corrupted file: % s\n' % _path)
+                    stderr('Exception:\n')
+                    stderr(textwrap.indent(str(e), '    '))
+                    os.remove(_path)
 
 
 def score_by_reference_atlases(parcellations, reference_atlases, eps=1e-3):

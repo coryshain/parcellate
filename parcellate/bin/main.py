@@ -4,6 +4,7 @@ import yaml
 import argparse
 
 from parcellate.cfg import *
+from parcellate.data import purge_bad_nii
 from parcellate.util import CFG_FILENAME, join
 from parcellate.model import parcellate
 
@@ -35,11 +36,18 @@ if __name__ == '__main__':
         stale results is never correct behavior.\
         '''
     ))
+    argparser.add_argument('-p', '--purge_bad_nii', action='store_true', help=textwrap.dedent('''\
+        Whether to first purge any badly formatted NIFTI files from the model directory. This is useful for 
+        resumption of models that may have been interrupted during I/O, since it forces rebuild of any corrupt
+        outputs. But it creates initial overhead by requiring loading of lots of NIFTIs in order to check them.\
+        '''
+    ))
     args = argparser.parse_args()
     config_path = args.config_path
     parcellation_id = args.parcellation_id
     nogrid = args.nogrid
     overwrite = args.overwrite
+    do_purge_bad_nii = args.purge_bad_nii
 
     cfg = get_cfg(config_path)
 
@@ -58,6 +66,9 @@ if __name__ == '__main__':
         os.makedirs(output_dir)
     with open(join(output_dir, CFG_FILENAME), 'w') as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
+
+    if do_purge_bad_nii:
+        purge_bad_nii(output_dir, compressed=compress_outputs)
 
     if 'grid' in cfg and not nogrid:
         grid_params = get_grid_params(cfg)
