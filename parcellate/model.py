@@ -101,6 +101,10 @@ def sample(
     v = input_data.v
     timecourses = input_data.timecourses
 
+    df = pd.DataFrame([dict(n_trs=input_data.n_trs, n_runs=input_data.n_runs)])
+    eval_path = get_path(output_dir, 'evaluation', 'sample', sample_id)
+    df.to_csv(eval_path, index=False)
+
     # Sample parcellations by clustering the voxel timecourses
     if n_networks > 256:
         dtype=np.uint16

@@ -19,6 +19,7 @@ PATHS = dict(
         kwargs='sample_kwargs.yml',
         subdir=ACTION_VERB_TO_NOUN['sample'],
         output='sample%s',
+        evaluation='evaluation.csv',
     ),
     align=dict(
         kwargs='align_kwargs.yml',

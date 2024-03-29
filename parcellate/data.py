@@ -292,8 +292,6 @@ class InputData(Data):
         self.low_pass = low_pass
         self.high_pass = high_pass
 
-        v = int(mask.sum())
-
         # Perform any post-processing
         for i, functional in enumerate(functionals):
             functional = self.flatten(functional)
@@ -310,6 +308,14 @@ class InputData(Data):
         self.functionals = functionals
         self.timecourses = np.concatenate(self.functionals, axis=-1)
         self.compress_outputs = compress_outputs
+
+    @property
+    def n_trs(self):
+        return self.timecourses.shape[-1]
+
+    @property
+    def n_runs(self):
+        return len(self.functionals)
 
     def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
         assert lower is not None or upper is not None, 'At least one of the lower (hi-pass) or upper (lo-pass) ' + \
