@@ -268,16 +268,14 @@ class InputData(Data):
         # Load all data and aggregate the mask
         _functionals = []
         _mask = None
-        for functional in functional_paths:
-            if isinstance(functional, str):
-                functional = get_nii(functional, fwhm=self.fwhm)
-            assert 'Nifti1Image' in type(
-                functional).__name__, 'Functional must be either a string path or a Nifti-like' + \
-                                      'image class. Got type %s.' % type(functional)
+        for functional_path in functional_paths:
+            functional = get_nii(functional_path, fwhm=self.fwhm)
             data = image.get_data(functional)
-            functional = image.new_img_like(functional, data)
             __mask = (data.std(axis=-1) > 0) & \
                      np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
+            if __mask.sum() == 0:
+                stderr('No valid voxels (finite-valued, sd > 0) found in image %s. Skipping.\n' % functional_path)
+                continue
             if _mask is None:
                 _mask = __mask
             else:
