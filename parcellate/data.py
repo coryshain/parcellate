@@ -18,20 +18,22 @@ NII_CACHE = {}  # Map from paths to NII objects
 
 
 def standardize_array(arr, axis=-1):
-    denom = arr.std(axis=axis, keepdims=True)
-    denom = np.where(np.isfinite(denom), denom, np.ones_like(denom))
-    return (arr - arr.mean(axis=axis, keepdims=True)) / denom
+    out = (arr - arr.mean(axis=axis, keepdims=True)) / arr.std(axis=axis, keepdims=True)
+    out = np.where(np.isfinite(out), out, np.zeros_like(out))
+
+    return out
 
 
 def detrend_array(arr, axis=1):
     return signal.detrend(arr, axis=axis)
 
 
-def minmax_normalize_array(arr, eps=1e-8, axis=None):
-    arr = arr - arr.min(axis=axis, keepdims=True)
-    arr = arr / arr.max(axis=axis, keepdims=True) + eps
+def minmax_normalize_array(arr, axis=None):
+    out = arr - arr.min(axis=axis, keepdims=True)
+    out = out / out.max(axis=axis, keepdims=True)
+    out = np.where(np.isfinite(out), out, np.zeros_like(out))
 
-    return arr
+    return out
 
 
 def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE):
