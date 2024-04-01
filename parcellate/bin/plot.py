@@ -1037,6 +1037,7 @@ if __name__ == '__main__':
             dimensions=dimensions,
             reference_atlas_names=reference_atlas_names,
             evaluation_atlas_names=evaluation_atlas_names,
+            baseline_atlas_names=baseline_atlas_names,
             plot_dir=join(output_dir, 'grid'),
             dump_data=dump_data
         )
