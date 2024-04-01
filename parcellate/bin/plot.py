@@ -870,6 +870,9 @@ if __name__ == '__main__':
     argparser.add_argument('-d', '--dimensions', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of grid-searched dimension(s) to plot. If None, use all available dimensions.'''
     ))
+    argparser.add_argument('-T', '--include_thresholds', action='store_true', help=textwrap.dedent('''\
+        Include performance when binarizing the atlas at different probability thresholds.'''
+    ))
     argparser.add_argument('-o', '--output_dir', default='plots', help=textwrap.dedent('''\
         Output directory for performance and grid plots (atlases are saved in each model directory).
     '''))
@@ -882,6 +885,7 @@ if __name__ == '__main__':
     reference_atlase_names = args.reference_atlas_names
     evaluation_atlase_names = args.evaluation_atlas_names
     dimensions = args.dimensions
+    include_thresholds = args.include_thresholds
     output_dir = args.output_dir
 
     if plot_type & {'atlas', 'all'}:
@@ -897,6 +901,7 @@ if __name__ == '__main__':
             parcellation_ids=parcellation_ids,
             reference_atlas_names=reference_atlase_names,
             evaluation_atlas_names=evaluation_atlase_names,
+            include_thresholds=include_thresholds,
             plot_dir=join(output_dir, 'performance')
         )
     if plot_type & {'grid', 'all'}:
