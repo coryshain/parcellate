@@ -427,10 +427,10 @@ def plot_performance(
                 )
                 if not os.path.exists(plot_dir):
                     os.makedirs(plot_dir)
-                fig.savefig(join(plot_dir, '%s_v_reference_%s_sim.png' % (atlas_name, reference_atlas_name)), dpi=300)
+                fig.savefig(join(plot_dir, '%s_%s_sim.png' % (atlas_name, reference_atlas_name)), dpi=300)
                 if dump_data:
                     __df.to_csv(
-                        join(plot_dir, '%s_v_reference_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                        join(plot_dir, '%s_%s_sim.csv' % (atlas_name, reference_atlas_name)),
                         index=False
                     )
 
@@ -461,14 +461,14 @@ def plot_performance(
                     )
                     if not os.path.exists(plot_dir):
                         os.makedirs(plot_dir)
-                    fig.savefig(join(plot_dir, '%s_v_evaluation_%s_sim.png' % (
+                    fig.savefig(join(plot_dir, '%s_%s_sim.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
                     if dump_data:
                         __df['label'] = labels[1]
                         __dfr['label'] = labels[0]
                         csv = pd.concat([__df, __dfr], axis=0)
                         csv.to_csv(
-                            join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
+                            join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
                             index=False
                         )
 
@@ -706,12 +706,12 @@ def plot_grid(
                     if not os.path.exists(plot_dir):
                         os.makedirs(plot_dir)
                     fig.savefig(
-                        join(plot_dir, '%s_v_reference_%s_sim.png' % (atlas_name, reference_atlas_name)),
+                        join(plot_dir, '%s_%s_sim.png' % (atlas_name, reference_atlas_name)),
                         dpi=300
                     )
                     if dump_data:
                         __df.to_csv(
-                            join(plot_dir, '%s_v_reference_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                            join(plot_dir, '%s_%s_sim.csv' % (atlas_name, reference_atlas_name)),
                             index=False
                         )
 
@@ -750,7 +750,7 @@ def plot_grid(
                         if not os.path.exists(plot_dir):
                             os.makedirs(plot_dir)
                         fig.savefig(
-                            join(plot_dir, '%s_v_evaluation_%s_sim.png' % (atlas_name, evaluation_atlas_name)),
+                            join(plot_dir, '%s_%s_sim.png' % (atlas_name, evaluation_atlas_name)),
                             dpi=300
                         )
                         if dump_data:
@@ -758,7 +758,7 @@ def plot_grid(
                             __dfr['label'] = labels[1]
                             csv = pd.concat([__df, __dfr], axis=0)
                             csv.to_csv(
-                                join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
+                                join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
                                 index=False
                             )
 
