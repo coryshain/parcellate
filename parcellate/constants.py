@@ -49,5 +49,5 @@ PATHS = dict(
     )
 )
 REFERENCE_ATLAS_NAME_TO_LABEL = dict(
-    language='LanA'
+    reference_atlas_language='LanA'
 )

@@ -449,7 +449,7 @@ def plot_performance(
                         _baseline_atlas_names = ['reference_atlas_%s' % reference_atlas_name]
 
                     labels = [
-                        reference_atlas_name_to_label.get(baseline_atlas_name, _baseline_atlas_names) for
+                        reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
                                  baseline_atlas_name in _baseline_atlas_names
                     ] + ['FC']
 
@@ -458,8 +458,8 @@ def plot_performance(
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
-                        _dfb = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
-                        _dfb = _dfb[_dfb.atlas == baseline_atlas_name][cols].rename(_rename_performance, axis=1)
+                        _dfb = df[df.parcel == baseline_atlas_name]
+                        _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                         dfb.append(_dfb)
                     ylab = 'Similarity'
                     xlab = None
@@ -491,8 +491,8 @@ def plot_performance(
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
-                        _dfb = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
-                        _dfb = _dfb[_dfb.atlas == baseline_atlas_name][cols].rename(_rename_performance, axis=1)
+                        _dfb = df[df.parcel == baseline_atlas_name]
+                        _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                         dfb.append(_dfb)
                     ylab = '%s Contrast' % evaluation_atlas_name
                     xlab = None
@@ -541,8 +541,7 @@ def _plot_performance(
     for i, df in enumerate(dfs):
         if n_ticks is None:
             n_ticks = len(df.columns)
-        if tick_labels is None:
-            tick_labels = df.columns.tolist()
+        tick_labels = df.columns.tolist()
         if n_ticks == 1:
             divider = False
         y = df.mean(axis=0)
@@ -574,13 +573,16 @@ def _plot_performance(
             plt.xlabel(xlabel)
         if ylabel:
             plt.ylabel(ylabel)
-    plt.xticks(
-        x,
-        tick_labels,
-        rotation=45,
-        ha='right',
-        rotation_mode='anchor'
-    )
+    if len(x) > 1:
+        plt.xticks(
+            x,
+            tick_labels,
+            rotation=45,
+            ha='right',
+            rotation_mode='anchor'
+        )
+    else:
+        plt.xticks([], [])
     plt.xlim(xlim)
     if labels is not None:
         legend_kwargs = dict(
