@@ -367,6 +367,7 @@ def plot_performance(
         parcellation_ids=None,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
+        baseline_atlas_names=None,
         include_thresholds=False,
         plot_dir=join('plots', 'performance'),
         reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
@@ -376,6 +377,8 @@ def plot_performance(
         cfg_paths = [cfg_paths]
     if isinstance(parcellation_ids, str):
         parcellation_ids = [parcellation_ids]
+    if isinstance(baseline_atlas_names, str):
+        baseline_atlas_names = [baseline_atlas_names]
 
     dfs = {}
     for cfg_path in cfg_paths:
@@ -409,8 +412,6 @@ def plot_performance(
 
         for atlas_name in atlas_names:
             for reference_atlas_name in _reference_atlas_names:
-                labels = [reference_atlas_name_to_label.get(reference_atlas_name, reference_atlas_name), 'FC']
-
                 # Similarity to reference
                 _df = df[(df.parcel == atlas_name)]
                 cols = ['atlas_score'] + ['jaccard%s' % x for x in SUFFIX2NAME]
@@ -443,16 +444,28 @@ def plot_performance(
                     if include_thresholds:
                         suffixes += list(SUFFIX2NAME.keys())
 
+                    _baseline_atlas_names = baseline_atlas_names
+                    if _baseline_atlas_names is None:
+                        _baseline_atlas_names = ['reference_atlas_%s' % reference_atlas_name]
+
+                    labels = [
+                        reference_atlas_name_to_label.get(baseline_atlas_name, _baseline_atlas_names) for
+                                 baseline_atlas_name in _baseline_atlas_names
+                    ] + ['FC']
+
                     # Similarity to evaluation
-                    _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
                     cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    dfb = []
+                    for baseline_atlas_name in _baseline_atlas_names:
+                        _dfb = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
+                        _dfb = _dfb[_dfb.atlas == baseline_atlas_name][cols].rename(_rename_performance, axis=1)
+                        dfb.append(_dfb)
                     ylab = 'Similarity'
                     xlab = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
-                        __dfr, __df,
+                        *dfb, __df,
                         colors=colors,
                         labels=labels,
                         xlabel=xlab,
@@ -464,9 +477,10 @@ def plot_performance(
                     fig.savefig(join(plot_dir, '%s_%s_sim.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
                     if dump_data:
-                        __df['label'] = labels[1]
-                        __dfr['label'] = labels[0]
-                        csv = pd.concat([__df, __dfr], axis=0)
+                        csv = dfb + [__df]
+                        for i, _csv in enumerate(csv):
+                            _csv['label'] = labels[i]
+                        csv = pd.concat(csv, axis=0)
                         csv.to_csv(
                             join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
                             index=False
@@ -475,12 +489,16 @@ def plot_performance(
                     # Evaluation contrast size
                     cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    dfb = []
+                    for baseline_atlas_name in _baseline_atlas_names:
+                        _dfb = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
+                        _dfb = _dfb[_dfb.atlas == baseline_atlas_name][cols].rename(_rename_performance, axis=1)
+                        dfb.append(_dfb)
                     ylab = '%s Contrast' % evaluation_atlas_name
                     xlab = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
-                        __dfr, __df,
+                        *dfb, __df,
                         colors=colors,
                         labels=labels,
                         xlabel=xlab,
@@ -492,9 +510,10 @@ def plot_performance(
                     fig.savefig(join(plot_dir, '%s_%s_contrast.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
                     if dump_data:
-                        __df['label'] = labels[1]
-                        __dfr['label'] = labels[0]
-                        csv = pd.concat([__df, __dfr], axis=0)
+                        csv = dfb + [__df]
+                        for i, _csv in enumerate(csv):
+                            _csv['label'] = labels[i]
+                        csv = pd.concat(csv, axis=0)
                         csv.to_csv(
                             join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
                             index=False
@@ -620,6 +639,7 @@ def plot_grid(
         dimensions=None,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
+        baseline_atlas_names=None,
         plot_dir=join('plots', 'grid'),
         reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
         dump_data=False
@@ -634,6 +654,8 @@ def plot_grid(
         reference_atlas_names = [reference_atlas_names]
     if isinstance(evaluation_atlas_names, str):
         evaluation_atlas_names = [evaluation_atlas_names]
+    if isinstance(baseline_atlas_names, str):
+        baseline_atlas_names = [baseline_atlas_names]
 
     dfs = {}
     grid_params = None
@@ -932,6 +954,9 @@ if __name__ == '__main__':
     argparser.add_argument('-e', '--evaluation_atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of evaluation atlas(es) to use for plotting. If None, use all available evaluation atlases.'''
     ))
+    argparser.add_argument('-b', '--baseline_atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
+        Name(s) of atlas(es) to use as baseline for plotting. If None, use all reference atlas.'''
+    ))
     argparser.add_argument('-d', '--dimensions', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of grid-searched dimension(s) to plot. If None, use all available dimensions.'''
     ))
@@ -950,8 +975,9 @@ if __name__ == '__main__':
     plot_type = set(args.plot_type)
     parcellation_ids = args.parcellation_ids
     aggregation_ids = args.aggregation_ids
-    reference_atlase_names = args.reference_atlas_names
-    evaluation_atlase_names = args.evaluation_atlas_names
+    reference_atlas_names = args.reference_atlas_names
+    evaluation_atlas_names = args.evaluation_atlas_names
+    baseline_atlas_names = args.baseline_atlas_names
     dimensions = args.dimensions
     include_thresholds = args.include_thresholds
     dump_data = args.dump_data
@@ -961,15 +987,16 @@ if __name__ == '__main__':
         plot_atlases(
             cfg_paths,
             parcellation_ids,
-            reference_atlase_names,
-            evaluation_atlase_names
+            reference_atlas_names,
+            evaluation_atlas_names
         )
     if plot_type  & {'performance', 'all'}:
         plot_performance(
             cfg_paths,
             parcellation_ids=parcellation_ids,
-            reference_atlas_names=reference_atlase_names,
-            evaluation_atlas_names=evaluation_atlase_names,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names,
+            baseline_atlas_names=baseline_atlas_names,
             include_thresholds=include_thresholds,
             plot_dir=join(output_dir, 'performance'),
             dump_data=dump_data
@@ -979,8 +1006,8 @@ if __name__ == '__main__':
             cfg_paths,
             aggregation_ids=aggregation_ids,
             dimensions=dimensions,
-            reference_atlas_names=reference_atlase_names,
-            evaluation_atlas_names=evaluation_atlase_names,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names,
             plot_dir=join(output_dir, 'grid'),
             dump_data=dump_data
         )
