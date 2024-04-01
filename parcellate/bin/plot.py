@@ -791,7 +791,7 @@ def _plot_grid(
         yerr = selected.sem()
         if not np.isfinite(yerr):
             yerr = None
-        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='cs', linewidth=1, markersize=3, zorder=i+1)
+        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='c,', linewidth=1, markersize=3, zorder=i+1)
 
     plt.xlabel(xlabel)
     if ylabel:
