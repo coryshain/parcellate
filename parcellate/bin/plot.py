@@ -367,6 +367,7 @@ def plot_performance(
         parcellation_ids=None,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
+        include_thresholds=False,
         plot_dir=join('plots', 'performance')
 ):
     if isinstance(cfg_paths, str):
@@ -452,7 +453,10 @@ def plot_performance(
 
                 # Evaluation contrast size
                 for evaluation_atlas_name in _evaluation_atlas_names:
-                    cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in [''] + list(SUFFIX2NAME.keys())]
+                    suffixes = ['']
+                    if include_thresholds:
+                        suffixes += list(SUFFIX2NAME.keys())
+                    cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     ylab = '%s Contrast' % evaluation_atlas_name
@@ -470,8 +474,6 @@ def plot_performance(
                         os.makedirs(plot_dir)
                     fig.savefig(join(plot_dir, '%s_%s_contrast.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
-
-
 
 
 def _plot_performance(
