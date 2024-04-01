@@ -128,6 +128,7 @@ def align(
         reference_atlases,
         alignment_id=None,
         sample_id=None,
+        average_first=True,
         max_subnetworks=None,
         minmax_normalize=True,
         use_poibin=True,
@@ -154,6 +155,7 @@ def align(
             reference_atlases=reference_atlases,
             alignment_id=alignment_id,
             sample_id=sample_id,
+            average_first=average_first,
             max_subnetworks=max_subnetworks,
             minmax_normalize=minmax_normalize,
             use_poibin=use_poibin,
@@ -208,6 +210,7 @@ def align(
     sample_scores = minmax_normalize_array(sample_scores)
     # Select reference sample
     ref_ix = np.argmax(sample_scores)
+
     # Align to reference
     parcellation = align_samples(samples, ref_ix, w=sample_scores)
 
@@ -218,19 +221,47 @@ def align(
     results = []
     for j, reference_atlas_name in enumerate(reference_atlas_names):
         reference_atlas = reference_atlases[reference_atlas_name]
-        scores = np.zeros(n_networks)
-        for ni in range(n_networks):
-            scores[ni] = np.corrcoef(parcellation[ni], reference_atlas)[0, 1]
-        reference_ix = np.argsort(scores, axis=-1)[::-1]
+        if average_first:
+            scores = np.zeros(n_networks)
+            for ni in range(n_networks):
+                scores[ni] = np.corrcoef(parcellation[ni], reference_atlas)[0, 1]
+            reference_ix = np.argsort(scores, axis=-1)[::-1]
+        else:
+            samples_relabeled = np.zeros_like(samples)
+            scores = np.zeros((n_samples, n_networks))
+            reference_atlas_z = standardize_array(reference_atlas)
+            for si in range(n_samples):
+                networks = samples[si][None, ...] == np.arange(n_networks)[..., None]
+                networks_z = standardize_array(networks)
+                _scores = np.dot(
+                    networks_z,
+                    reference_atlas_z.T
+                ) / v
+                sort_ix = np.argsort(_scores)[::-1]
+                ranks = np.argsort(sort_ix)
+                scores[si] = _scores[sort_ix]
+                samples_relabeled[si] = ranks[samples[si]]
+            samples = samples_relabeled
+            reference_ix = np.arange(n_networks)
         candidate = None
         r_prev = -np.inf
         candidate_list = []
         candidate_scores = []
         for ni in range(max_subnetworks):
-            ix = reference_ix[..., ni]
-            candidate_scores.append(scores[ix])
+            ix = reference_ix[ni]
+            if average_first:
+                _score = scores[ix]
+            else:
+                _score = np.tanh(np.arctanh(scores[:, ix] * (1 - 2 * eps) + eps).mean(axis=-1))
+            candidate_scores.append(_score)
             _candidate = candidate
-            candidate = parcellation[ix]
+            if average_first:
+                candidate = parcellation[ix]
+            else:
+                candidate = samples == ni
+                weights = scores[:, ni:ni+1]
+                weights = minmax_normalize_array(weights)
+                candidate = (candidate * weights).sum(axis=0) / weights.sum()
             candidate = np.clip(candidate, 0, 1)
             candidate_list.append(candidate)
             if use_poibin and ni > 0:
@@ -665,16 +696,13 @@ def parcellate(
 
         # Aggregate
         action = None
-        for a, action in enumerate(action_sequence):
-            if action['type'] == 'aggregate':
-                break
-        assert action is not None and action['type'] == 'aggregate', ('action type "aggregate" not found in '
-            'action_sequence')
         _action_sequence = []
         for action in action_sequence:
             _action_sequence.append(action)
             if action['type'] == 'aggregate':
                 break
+        assert action is not None and action['type'] == 'aggregate', ('action type "aggregate" not found in '
+            'action_sequence')
         mtime, exists = check_deps(
             output_dir,
             _action_sequence,
@@ -702,12 +730,19 @@ def parcellate(
             parcellate_kwargs = yaml.safe_load(f)
 
         # Parcellate
-        kwargs_update = action['kwargs']
-        for action in parcellate_kwargs['action_sequence']:
+        action = None
+        _action_sequence = []
+        for action in action_sequence:
+            if action['type'] == 'aggregate':
+                continue
+            action_ = get_action(action['type'], parcellate_kwargs['action_sequence'])
+            kwargs_update = {x: action['kwargs'][x] for x in action['kwargs'] if x not in grid_params}
             if action['type'] != 'parcellate':
                 _kwarg_keys = set(inspect.signature(ACTIONS[action['type']]).parameters.keys())
-                _kwargs_update = {x: kwargs_update[x] for x in kwargs_update if x in _kwarg_keys}
-                action['kwargs'].update(_kwargs_update)
+                kwargs_update = {x: kwargs_update[x] for x in kwargs_update if x in _kwarg_keys}
+                action_['kwargs'].update(kwargs_update)
+        assert action is not None and action['type'] == 'parcellate', ('Final action type in '
+            'grid searched "action_sequence" must be "parcellate"')
         action_prefix = []
         for action in action_sequence[:-1]:  # Add dependencies to grid, ignoring last ('parcellate') action
             action_prefix.append(dict(
