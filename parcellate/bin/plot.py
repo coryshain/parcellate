@@ -520,7 +520,6 @@ def _plot_performance(
     xlim = None
     spacer = 1
     for i, df in enumerate(dfs):
-        df['label'] = labels[i]
         if n_ticks is None:
             n_ticks = len(df.columns)
         if tick_labels is None:
