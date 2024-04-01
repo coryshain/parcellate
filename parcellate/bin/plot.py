@@ -368,7 +368,9 @@ def plot_performance(
         reference_atlas_names=None,
         evaluation_atlas_names=None,
         include_thresholds=False,
-        plot_dir=join('plots', 'performance')
+        plot_dir=join('plots', 'performance'),
+        reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
+        dump_data=False
 ):
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
@@ -407,6 +409,8 @@ def plot_performance(
 
         for atlas_name in atlas_names:
             for reference_atlas_name in _reference_atlas_names:
+                labels = [reference_atlas_name_to_label[reference_atlas_name], 'FC']
+
                 # Similarity to reference
                 _df = df[(df.parcel == atlas_name)]
                 cols = ['atlas_score'] + ['jaccard%s' % x for x in SUFFIX2NAME]
@@ -424,48 +428,63 @@ def plot_performance(
                 if not os.path.exists(plot_dir):
                     os.makedirs(plot_dir)
                 fig.savefig(join(plot_dir, '%s_v_reference_%s_sim.png' % (atlas_name, reference_atlas_name)), dpi=300)
+                if dump_data:
+                    __df.to_csv(
+                        join(plot_dir, '%s_v_reference_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                        index=False
+                    )
 
-                # Similarity to evaluation
                 _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
                 if evaluation_atlas_names is not None:
                     _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
-                _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
-                cols = []
-                for evaluation_atlas_name in _evaluation_atlas_names:
-                    cols.append('%s_score' % evaluation_atlas_name)
-                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                ylab = 'Similarity'
-                xlab = None
-                colors = ['c', 'm']
-                fig = _plot_performance(
-                    __dfr, __df,
-                    colors=colors,
-                    labels=['LanA', 'FC'],
-                    xlabel=xlab,
-                    ylabel=ylab,
-                    divider=True
-                )
-                if not os.path.exists(plot_dir):
-                    os.makedirs(plot_dir)
-                fig.savefig(join(plot_dir, '%s_v_evaluation_%s_sim.png' % (
-                    atlas_name, reference_atlas_name)), dpi=300)
 
-                # Evaluation contrast size
                 for evaluation_atlas_name in _evaluation_atlas_names:
                     suffixes = ['']
                     if include_thresholds:
                         suffixes += list(SUFFIX2NAME.keys())
-                    cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
+
+                    # Similarity to evaluation
+                    _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
+                    cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    __df['label'] = labels[0]
+                    __dfr['label'] = labels[1]
+                    ylab = 'Similarity'
+                    xlab = None
+                    colors = ['c', 'm']
+                    fig = _plot_performance(
+                        __dfr, __df,
+                        colors=colors,
+                        labels=labels,
+                        xlabel=xlab,
+                        ylabel=ylab,
+                        divider=True
+                    )
+                    if not os.path.exists(plot_dir):
+                        os.makedirs(plot_dir)
+                    evaluation_name = '_'.join(_evaluation_atlas_names)
+                    fig.savefig(join(plot_dir, '%s_v_evaluation_%s_sim.png' % (
+                        atlas_name, evaluation_name)), dpi=300)
+                    if dump_data:
+                        csv = pd.concat([__df, __dfr], axis=0)
+                        csv.to_csv(
+                            join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                            index=False
+                        )
+
+                    # Evaluation contrast size
+                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    __df['label'] = labels[0]
+                    __dfr['label'] = labels[1]
                     ylab = '%s Contrast' % evaluation_atlas_name
                     xlab = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
                         __dfr, __df,
                         colors=colors,
-                        labels=['LanA', 'FC'],
+                        labels=labels,
                         xlabel=xlab,
                         ylabel=ylab,
                         divider=True
@@ -474,6 +493,12 @@ def plot_performance(
                         os.makedirs(plot_dir)
                     fig.savefig(join(plot_dir, '%s_%s_contrast.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
+                    if dump_data:
+                        csv = pd.concat([__df, __dfr], axis=0)
+                        csv.to_csv(
+                            join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
+                            index=False
+                        )
 
 
 def _plot_performance(
@@ -484,7 +509,7 @@ def _plot_performance(
         ylabel=None,
         divider=False,
         width=None,
-        height=3,
+        height=3
 ):
     plt.close('all')
     n_colors = len(dfs)
@@ -495,6 +520,7 @@ def _plot_performance(
     xlim = None
     spacer = 1
     for i, df in enumerate(dfs):
+        df['label'] = labels[i]
         if n_ticks is None:
             n_ticks = len(df.columns)
         if tick_labels is None:
@@ -595,7 +621,9 @@ def plot_grid(
         dimensions=None,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
-        plot_dir=join('plots', 'grid')
+        plot_dir=join('plots', 'grid'),
+        reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
+        dump_data=False
 ):
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
@@ -649,6 +677,8 @@ def plot_grid(
 
         for atlas_name in atlas_names:
             for reference_atlas_name in _reference_atlas_names:
+                labels = ['FC', reference_atlas_name_to_label[reference_atlas_name]]
+
                 for dimension in _dimensions:
                     _dimensions_other = [x for x in _dimensions if x != dimension]
                     # Similarity to reference
@@ -668,6 +698,7 @@ def plot_grid(
 
                     fig = _plot_grid(
                         __df,
+                        labels=labels,
                         selected=selected,
                         colors=['m'],
                         ylabel=_rename_grid(perf_col)
@@ -679,6 +710,11 @@ def plot_grid(
                         join(plot_dir, '%s_v_reference_%s_sim.png' % (atlas_name, reference_atlas_name)),
                         dpi=300
                     )
+                    if dump_data:
+                        __df.to_csv(
+                            join(plot_dir, '%s_v_reference_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                            index=False
+                        )
 
                     # Similarity to evaluation
                     _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
@@ -702,10 +738,13 @@ def plot_grid(
                             values=perf_col
                         )
                         __dfr.columns.name = _rename_grid(__dfr.columns.name)
+                        __df['label'] = labels[0]
+                        __dfr['label'] = labels[1]
 
                         fig = _plot_grid(
                             __df,
                             dfr=__dfr,
+                            labels=labels,
                             selected=selected,
                             colors=['m', 'gray'],
                             ylabel=_rename_grid(perf_col)
@@ -717,6 +756,12 @@ def plot_grid(
                             join(plot_dir, '%s_v_evaluation_%s_sim.png' % (atlas_name, evaluation_atlas_name)),
                             dpi=300
                         )
+                        if dump_data:
+                            csv = pd.concat([__df, __dfr], axis=0)
+                            csv.to_csv(
+                                join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
+                                index=False
+                            )
 
                         perf_col = '%s_contrast' % evaluation_atlas_name
                         selected = _df[_df.selected][[dimension, perf_col]]
@@ -733,10 +778,13 @@ def plot_grid(
                             values=perf_col
                         )
                         __dfr.columns.name = _rename_grid(__dfr.columns.name)
+                        __df['label'] = labels[0]
+                        __dfr['label'] = labels[1]
 
                         fig = _plot_grid(
                             __df,
                             dfr=__dfr,
+                            labels=labels,
                             selected=selected,
                             colors=['m', 'gray'],
                             ylabel=_rename_grid(perf_col)
@@ -748,11 +796,18 @@ def plot_grid(
                             join(plot_dir, '%s_%s_contrast.png' % (atlas_name, evaluation_atlas_name)),
                             dpi=300
                         )
+                        if dump_data:
+                            csv = pd.concat([__df, __dfr], axis=0)
+                            csv.to_csv(
+                                join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
+                                index=False
+                            )
 
 
 def _plot_grid(
         df,
         dfr=None,
+        labels=None,
         selected=None,
         colors=None,
         ylabel=None,
@@ -767,6 +822,7 @@ def _plot_grid(
         dfs.append(dfr)
     i = 0
     for i, _df in enumerate(dfs):
+        label = labels[i]
         x = _df.columns
         y = _df.mean(axis=0)
         yerr = _df.sem(axis=0)
@@ -776,12 +832,12 @@ def _plot_grid(
             color = None
 
         if len(_df) > 1:
-            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)
+            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i, label=label)
         if i == 0:
             linestyle = 'solid'
         else:
             linestyle = 'dotted'
-        plt.plot(x, y, color=color, linestyle=linestyle, zorder=i)
+        plt.plot(x, y, color=color, linestyle=linestyle, zorder=i, label=label)
 
     if selected is not None and len(selected):
         index = pd.Series(selected.index)
@@ -798,6 +854,16 @@ def _plot_grid(
     plt.xlabel(xlabel)
     if ylabel:
         plt.ylabel(ylabel)
+
+    if labels is not None and len(labels) > 1:
+        legend_kwargs = dict(
+            loc='lower center',
+            bbox_to_anchor=(0.5, 1.1),
+            ncols=len(labels),
+            frameon=False,
+            fancybox=False,
+        )
+        plt.legend(**legend_kwargs)
 
     plt.gca().spines['top'].set_visible(False)
     plt.gca().spines['right'].set_visible(False)
@@ -873,6 +939,9 @@ if __name__ == '__main__':
     argparser.add_argument('-T', '--include_thresholds', action='store_true', help=textwrap.dedent('''\
         Include performance when binarizing the atlas at different probability thresholds.'''
     ))
+    argparser.add_argument('-D', '--dump_data', action='store_true', help=textwrap.dedent('''\
+        Save plot data to CSV.'''
+    ))
     argparser.add_argument('-o', '--output_dir', default='plots', help=textwrap.dedent('''\
         Output directory for performance and grid plots (atlases are saved in each model directory).
     '''))
@@ -886,6 +955,7 @@ if __name__ == '__main__':
     evaluation_atlase_names = args.evaluation_atlas_names
     dimensions = args.dimensions
     include_thresholds = args.include_thresholds
+    dump_data = args.dump_data
     output_dir = args.output_dir
 
     if plot_type & {'atlas', 'all'}:
@@ -902,7 +972,8 @@ if __name__ == '__main__':
             reference_atlas_names=reference_atlase_names,
             evaluation_atlas_names=evaluation_atlase_names,
             include_thresholds=include_thresholds,
-            plot_dir=join(output_dir, 'performance')
+            plot_dir=join(output_dir, 'performance'),
+            dump_data=dump_data
         )
     if plot_type & {'grid', 'all'}:
         plot_grid(
@@ -911,5 +982,6 @@ if __name__ == '__main__':
             dimensions=dimensions,
             reference_atlas_names=reference_atlase_names,
             evaluation_atlas_names=evaluation_atlase_names,
-            plot_dir=join(output_dir, 'grid')
+            plot_dir=join(output_dir, 'grid'),
+            dump_data=dump_data
         )

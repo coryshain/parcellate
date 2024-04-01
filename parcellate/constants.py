@@ -48,3 +48,6 @@ PATHS = dict(
         subdir='grid'
     )
 )
+REFERENCE_ATLAS_NAME_TO_LABEL = dict(
+    language='LanA'
+)
