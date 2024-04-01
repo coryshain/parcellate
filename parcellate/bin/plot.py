@@ -768,9 +768,7 @@ def plot_grid(
                         dfb = []
                         for baseline_atlas_name in _baseline_atlas_names:
                             _dfb = df[df.parcel == baseline_atlas_name]
-                            _dfb = _dfb[_dfb.atlas == reference_atlas_name].rename(
-                                _rename_performance, axis=1
-                            )
+                            _dfb = _dfb[_dfb.atlas == reference_atlas_name]
                             _dfb = _dfb.pivot(
                                 columns=[dimension] + _dimensions_other,
                                 index='cfg_path',
@@ -817,9 +815,7 @@ def plot_grid(
                         dfb = []
                         for baseline_atlas_name in _baseline_atlas_names:
                             _dfb = df[df.parcel == baseline_atlas_name]
-                            _dfb = _dfb[_dfb.atlas == reference_atlas_name].rename(
-                                _rename_performance, axis=1
-                            )
+                            _dfb = _dfb[_dfb.atlas == reference_atlas_name]
                             _dfb = _dfb.pivot(
                                 columns=[dimension] + _dimensions_other,
                                 index='cfg_path',
