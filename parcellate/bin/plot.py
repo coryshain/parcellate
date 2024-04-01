@@ -831,7 +831,7 @@ def _plot_grid(
             color = None
 
         if len(_df) > 1:
-            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i, label=label)
+            plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)
         if i == 0:
             linestyle = 'solid'
         else:
