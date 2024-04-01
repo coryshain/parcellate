@@ -755,19 +755,36 @@ def plot_grid(
                             values=perf_col
                         )
                         __df.columns.name = _rename_grid(__df.columns.name)
-                        __dfr = _dfr.pivot(
-                            columns=[dimension] + _dimensions_other,
-                            index='cfg_path',
-                            values=perf_col
-                        )
-                        __dfr.columns.name = _rename_grid(__dfr.columns.name)
+
+                        _baseline_atlas_names = baseline_atlas_names
+                        if _baseline_atlas_names is None:
+                            _baseline_atlas_names = ['reference_atlas_%s' % reference_atlas_name]
+
+                        labels = [
+                                     reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
+                                     baseline_atlas_name in _baseline_atlas_names
+                                 ] + ['FC']
+
+                        dfb = []
+                        for baseline_atlas_name in _baseline_atlas_names:
+                            _dfb = df[df.parcel == baseline_atlas_name]
+                            _dfb = _dfb[_dfb.atlas == reference_atlas_name].rename(
+                                _rename_performance, axis=1
+                            )
+                            _dfb = _dfb.pivot(
+                                columns=[dimension] + _dimensions_other,
+                                index='cfg_path',
+                                values=perf_col
+                            )
+                            _dfb.columns.name = _rename_grid(_dfb.columns.name)
+                            dfb.append(_dfb)
 
                         fig = _plot_grid(
                             __df,
-                            dfr=__dfr,
+                            dfb=dfb,
                             labels=labels,
                             selected=selected,
-                            colors=['m', 'gray'],
+                            colors=['gray', 'm'],
                             ylabel=_rename_grid(perf_col)
                         )
 
@@ -778,9 +795,10 @@ def plot_grid(
                             dpi=300
                         )
                         if dump_data:
-                            __df['label'] = labels[0]
-                            __dfr['label'] = labels[1]
-                            csv = pd.concat([__df, __dfr], axis=0)
+                            csv = dfb + [__df]
+                            for i, _csv in enumerate(csv):
+                                _csv['label'] = labels[i]
+                            csv = pd.concat(csv, axis=0)
                             csv.to_csv(
                                 join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
                                 index=False
@@ -795,16 +813,24 @@ def plot_grid(
                             values=perf_col
                         )
                         __df.columns.name = _rename_grid(__df.columns.name)
-                        __dfr = _dfr.pivot(
-                            columns=[dimension] + _dimensions_other,
-                            index='cfg_path',
-                            values=perf_col
-                        )
-                        __dfr.columns.name = _rename_grid(__dfr.columns.name)
+
+                        dfb = []
+                        for baseline_atlas_name in _baseline_atlas_names:
+                            _dfb = df[df.parcel == baseline_atlas_name]
+                            _dfb = _dfb[_dfb.atlas == reference_atlas_name].rename(
+                                _rename_performance, axis=1
+                            )
+                            _dfb = _dfb.pivot(
+                                columns=[dimension] + _dimensions_other,
+                                index='cfg_path',
+                                values=perf_col
+                            )
+                            _dfb.columns.name = _rename_grid(_dfb.columns.name)
+                            dfb.append(_dfb)
 
                         fig = _plot_grid(
                             __df,
-                            dfr=__dfr,
+                            dfb=dfb,
                             labels=labels,
                             selected=selected,
                             colors=['m', 'gray'],
@@ -818,9 +844,10 @@ def plot_grid(
                             dpi=300
                         )
                         if dump_data:
-                            __df['label'] = labels[0]
-                            __dfr['label'] = labels[1]
-                            csv = pd.concat([__df, __dfr], axis=0)
+                            csv = dfb + [__df]
+                            for i, _csv in enumerate(csv):
+                                _csv['label'] = labels[i]
+                            csv = pd.concat(csv, axis=0)
                             csv.to_csv(
                                 join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
                                 index=False
@@ -829,7 +856,7 @@ def plot_grid(
 
 def _plot_grid(
         df,
-        dfr=None,
+        dfb=None,
         labels=None,
         selected=None,
         colors=None,
@@ -840,9 +867,13 @@ def _plot_grid(
     plt.close('all')
     xlabel = df.columns.name
 
-    dfs = [df]
-    if dfr is not None:
-        dfs.append(dfr)
+    dfs = []
+    if dfb is not None:
+        if not isinstance(dfb, list):
+            dfs.append(dfb)
+        else:
+            dfs += dfb
+    dfs.append(df)
     i = 0
     for i, _df in enumerate(dfs):
         label = labels[i]
@@ -856,7 +887,7 @@ def _plot_grid(
 
         if len(_df) > 1:
             plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)
-        if i == 0:
+        if i == (len(dfs) - 1):
             linestyle = 'solid'
         else:
             linestyle = 'dotted'
