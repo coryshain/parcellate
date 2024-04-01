@@ -461,19 +461,19 @@ def plot_performance(
                     )
                     if not os.path.exists(plot_dir):
                         os.makedirs(plot_dir)
-                    evaluation_name = '_'.join(_evaluation_atlas_names)
                     fig.savefig(join(plot_dir, '%s_v_evaluation_%s_sim.png' % (
-                        atlas_name, evaluation_name)), dpi=300)
+                        atlas_name, evaluation_atlas_name)), dpi=300)
                     if dump_data:
                         __df['label'] = labels[1]
                         __dfr['label'] = labels[0]
                         csv = pd.concat([__df, __dfr], axis=0)
                         csv.to_csv(
-                            join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                            join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
                             index=False
                         )
 
                     # Evaluation contrast size
+                    cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     ylab = '%s Contrast' % evaluation_atlas_name
