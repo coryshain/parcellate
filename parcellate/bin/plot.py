@@ -409,7 +409,7 @@ def plot_performance(
 
         for atlas_name in atlas_names:
             for reference_atlas_name in _reference_atlas_names:
-                labels = [reference_atlas_name_to_label[reference_atlas_name], 'FC']
+                labels = [reference_atlas_name_to_label.get(reference_atlas_name, reference_atlas_name), 'FC']
 
                 # Similarity to reference
                 _df = df[(df.parcel == atlas_name)]
@@ -448,8 +448,6 @@ def plot_performance(
                     cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    __df['label'] = labels[0]
-                    __dfr['label'] = labels[1]
                     ylab = 'Similarity'
                     xlab = None
                     colors = ['c', 'm']
@@ -467,6 +465,8 @@ def plot_performance(
                     fig.savefig(join(plot_dir, '%s_v_evaluation_%s_sim.png' % (
                         atlas_name, evaluation_name)), dpi=300)
                     if dump_data:
+                        __df['label'] = labels[1]
+                        __dfr['label'] = labels[0]
                         csv = pd.concat([__df, __dfr], axis=0)
                         csv.to_csv(
                             join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, reference_atlas_name)),
@@ -476,8 +476,6 @@ def plot_performance(
                     # Evaluation contrast size
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     __dfr = _dfr[_dfr.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    __df['label'] = labels[0]
-                    __dfr['label'] = labels[1]
                     ylab = '%s Contrast' % evaluation_atlas_name
                     xlab = None
                     colors = ['c', 'm']
@@ -494,6 +492,8 @@ def plot_performance(
                     fig.savefig(join(plot_dir, '%s_%s_contrast.png' % (
                         atlas_name, evaluation_atlas_name)), dpi=300)
                     if dump_data:
+                        __df['label'] = labels[1]
+                        __dfr['label'] = labels[0]
                         csv = pd.concat([__df, __dfr], axis=0)
                         csv.to_csv(
                             join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
@@ -676,7 +676,7 @@ def plot_grid(
 
         for atlas_name in atlas_names:
             for reference_atlas_name in _reference_atlas_names:
-                labels = ['FC', reference_atlas_name_to_label[reference_atlas_name]]
+                labels = ['FC', reference_atlas_name_to_label.get(reference_atlas_name, reference_atlas_name)]
 
                 for dimension in _dimensions:
                     _dimensions_other = [x for x in _dimensions if x != dimension]
@@ -737,8 +737,6 @@ def plot_grid(
                             values=perf_col
                         )
                         __dfr.columns.name = _rename_grid(__dfr.columns.name)
-                        __df['label'] = labels[0]
-                        __dfr['label'] = labels[1]
 
                         fig = _plot_grid(
                             __df,
@@ -756,6 +754,8 @@ def plot_grid(
                             dpi=300
                         )
                         if dump_data:
+                            __df['label'] = labels[0]
+                            __dfr['label'] = labels[1]
                             csv = pd.concat([__df, __dfr], axis=0)
                             csv.to_csv(
                                 join(plot_dir, '%s_v_evaluation_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
@@ -777,8 +777,6 @@ def plot_grid(
                             values=perf_col
                         )
                         __dfr.columns.name = _rename_grid(__dfr.columns.name)
-                        __df['label'] = labels[0]
-                        __dfr['label'] = labels[1]
 
                         fig = _plot_grid(
                             __df,
@@ -796,6 +794,8 @@ def plot_grid(
                             dpi=300
                         )
                         if dump_data:
+                            __df['label'] = labels[0]
+                            __dfr['label'] = labels[1]
                             csv = pd.concat([__df, __dfr], axis=0)
                             csv.to_csv(
                                 join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
