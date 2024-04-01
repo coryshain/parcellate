@@ -90,6 +90,8 @@ def plot_atlases(
     subprocess.call([binary_path, '-S', script])
 
     for cfg_path in cfg_paths:
+        if not os.path.exists(cfg_path):
+            continue
         cfg = get_cfg(cfg_path)
         output_dir = cfg['output_dir']
         for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
@@ -137,12 +139,15 @@ def _get_atlas_paths(
     if isinstance(evaluation_atlas_names, str):
         evaluation_atlas_names = [evaluation_atlas_names]
 
+    out = {}
+    if not os.path.exists(cfg_path):
+        return out
+
     cfg = get_cfg(cfg_path)
     output_dir = os.path.normpath(cfg['output_dir'])
     compressed = cfg.get('compress_outputs', True)
     suffix = get_suffix(compressed=compressed)
 
-    out = {}
     if parcellation_ids is None:
         parcellation_ids = os.listdir(join(output_dir, 'parcellation'))
     for parcellation_id in parcellation_ids:
@@ -214,6 +219,8 @@ def _get_surf_ice_script(
     ''')
 
     for cfg_path in cfg_paths:
+        if not os.path.exists(cfg_path):
+            continue
         atlas_paths = _get_atlas_paths(
             cfg_path,
             parcellation_ids=parcellation_ids,
@@ -369,6 +376,8 @@ def plot_performance(
 
     dfs = {}
     for cfg_path in cfg_paths:
+        if not os.path.exists(cfg_path):
+            continue
         cfg = get_cfg(cfg_path)
         if parcellation_ids is None:
             _parcellation_ids = list(cfg['parcellate'].keys())
@@ -385,6 +394,8 @@ def plot_performance(
                 dfs[parcellation_id].append(df)
 
     for parcellation_id in dfs:
+        if not (parcellation_id in dfs and len(dfs[parcellation_id])):
+            continue
         df = pd.concat(dfs[parcellation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
         _reference_atlas_names = df['atlas'].unique().tolist()
@@ -584,7 +595,6 @@ def plot_grid(
         evaluation_atlas_names=None,
         plot_dir=join('plots', 'grid')
 ):
-    # TODO
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
     if isinstance(aggregation_ids, str):
@@ -599,6 +609,8 @@ def plot_grid(
     dfs = {}
     grid_params = None
     for cfg_path in cfg_paths:
+        if not os.path.exists(cfg_path):
+            continue
         cfg = get_cfg(cfg_path)
         if grid_params is None:
             grid_params = cfg['grid']
@@ -623,6 +635,8 @@ def plot_grid(
         _dimensions = [x for x in dimensions if x in _dimensions]
 
     for aggregation_id in dfs:
+        if not (aggregation_id in dfs and len(dfs[aggregation_id])):
+            continue
         df = pd.concat(dfs[aggregation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
         _reference_atlas_names = df['atlas'].unique().tolist()

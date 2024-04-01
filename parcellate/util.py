@@ -106,7 +106,6 @@ def get_suffix(compressed):
     return suffix
 
 
-
 def get_path(output_dir, path_type, action_type, action_id, compressed=True):
     assert action_type in PATHS, 'Unrecognized action_type %s' % action_type
     assert path_type in PATHS[action_type], 'Unrecognized path_type %s for action_type %s' % (path_type, action_type)
