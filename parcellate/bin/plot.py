@@ -455,6 +455,7 @@ def plot_performance(
 
                     # Similarity to evaluation
                     cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
+                    cols = [x for x in cols if x in df]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
@@ -488,6 +489,7 @@ def plot_performance(
 
                     # Evaluation contrast size
                     cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
+                    cols = [x for x in cols if x in df]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:

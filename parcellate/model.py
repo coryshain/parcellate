@@ -128,7 +128,7 @@ def align(
         reference_atlases,
         alignment_id=None,
         sample_id=None,
-        average_first=True,
+        average_first=False,
         max_subnetworks=None,
         minmax_normalize=True,
         use_poibin=True,
@@ -900,8 +900,15 @@ def _get_evaluation_spcorr(
     evaluation_atlas_names = list(_evaluation_atlases.keys())
     for evaluation_atlas_name in evaluation_atlas_names:
         evaluation_atlas = _evaluation_atlases[evaluation_atlas_name]
-        r = np.corrcoef(atlas, evaluation_atlas)[0, 1]
-        row['%s_score' % evaluation_atlas_name] = r
+        for p in (None, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+            if p is None:
+                _atlas = atlas
+                suffix = ''
+            else:
+                _atlas = atlas > p
+                suffix = '_atpgt%s' % p
+            r = np.corrcoef(_atlas, evaluation_atlas)[0, 1]
+            row['%s_score%s' % (evaluation_atlas_name, suffix)] = r
 
     return row
 
