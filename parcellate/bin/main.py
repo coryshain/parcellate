@@ -20,7 +20,7 @@ if __name__ == '__main__':
         Do not grid search, even if ``grid`` is provided.\
         '''
     ))
-    argparser.add_argument('-o', '--overwrite', action='store_true', help=textwrap.dedent('''\
+    argparser.add_argument('-o', '--overwrite', nargs='?', default=False, help=textwrap.dedent('''\
         Whether to overwrite existing parcellation data. If ``False``, will only estimate missing results, leaving old 
         ones in place.
         

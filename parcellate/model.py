@@ -626,13 +626,14 @@ def parcellate(
 
     sample_id = get_action_attr('sample', action_sequence, 'id')
     alignment_id = get_action_attr('align', action_sequence, 'id')
-    evaluation_id = get_action_attr('evaluate', action_sequence, 'id')
     aggregation_id = get_action_attr('aggregate', action_sequence, 'id')
     parcellation_id = get_action_attr('parcellate', action_sequence, 'id')
 
     assert isinstance(sample_id, str), 'sample_id is required, must be given as a str.'
     assert isinstance(alignment_id, str), 'alignment_id is required, must be given as a str.'
     assert isinstance(parcellation_id, str), 'parcellation_id is required, must be given as a str.'
+
+    overwrite = get_overwrite(overwrite)
 
     use_grid = get_action_attr('parcellate', action_sequence, 'kwargs').get('use_grid', True)
 
@@ -709,7 +710,7 @@ def parcellate(
             compressed=True
         )
         stale = mtime == 1
-        if overwrite or stale or not exists:
+        if overwrite['aggregate'] or stale or not exists:
             # Recursion bottoms out since grid_params is None
             _aggregate_kwargs = copy.deepcopy(action['kwargs'])
             # _action_sequence.append(get_action('aggregate', action_sequence))
@@ -782,7 +783,7 @@ def parcellate(
                 compressed=True
             )
             stale = mtime == 1
-            if overwrite or stale or not exists:
+            if overwrite[action_type] or stale or not exists:
                 do_action = True
             else:
                 do_action = False

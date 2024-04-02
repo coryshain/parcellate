@@ -241,3 +241,27 @@ def check_deps(
     mtime = get_max_mtime(mtime, dep_mtime)
 
     return mtime, exists
+
+
+def get_overwrite(overwrite):
+    if isinstance(overwrite, dict):
+        return overwrite
+
+    out = dict(
+        sample=False,
+        align=False,
+        evaluate=False,
+        aggregate=False,
+        parcellate=False
+    )
+    if overwrite is None:
+        for x in out:
+            out[x] = True
+    elif isinstance(overwrite, str):
+        out[overwrite] = True
+    elif overwrite is False:
+        pass
+    else:
+        raise ValueError('Unrecognized value for overwrite: %s' % overwrite)
+
+    return out
