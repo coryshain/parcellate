@@ -417,13 +417,13 @@ def plot_performance(
                 cols = ['atlas_score'] + ['jaccard%s' % x for x in SUFFIX2NAME]
                 __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                 colors = ['m']
-                xlab = None
-                ylab = 'Similarity'
+                xlabel = None
+                ylabel = 'Similarity to Reference'
                 fig = _plot_performance(
                     __df,
                     colors=colors,
-                    xlabel=xlab,
-                    ylabel=ylab,
+                    xlabel=xlabel,
+                    ylabel=ylabel,
                     divider=True
                 )
                 if not os.path.exists(plot_dir):
@@ -462,15 +462,15 @@ def plot_performance(
                         _dfb = df[df.parcel == baseline_atlas_name]
                         _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                         dfb.append(_dfb)
-                    ylab = 'Similarity'
-                    xlab = None
+                    ylabel = 'Similarity to %s' % evaluation_atlas_name
+                    xlabel = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
                         *dfb, __df,
                         colors=colors,
                         labels=labels,
-                        xlabel=xlab,
-                        ylabel=ylab,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
                         divider=True
                     )
                     if not os.path.exists(plot_dir):
@@ -496,15 +496,15 @@ def plot_performance(
                         _dfb = df[df.parcel == baseline_atlas_name]
                         _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                         dfb.append(_dfb)
-                    ylab = '%s Contrast' % evaluation_atlas_name
-                    xlab = None
+                    ylabel = '%s Contrast' % evaluation_atlas_name
+                    xlabel = None
                     colors = ['c', 'm']
                     fig = _plot_performance(
                         *dfb, __df,
                         colors=colors,
                         labels=labels,
-                        xlabel=xlab,
-                        ylabel=ylab,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
                         divider=True
                     )
                     if not os.path.exists(plot_dir):
@@ -540,6 +540,8 @@ def _plot_performance(
     x = None
     xlim = None
     spacer = 1
+    while len(colors) < n_colors:
+        colors = [None] + colors
     for i, df in enumerate(dfs):
         if n_ticks is None:
             n_ticks = len(df.columns)
@@ -558,10 +560,7 @@ def _plot_performance(
         if xlim is None:
             xlim = (x.min() - xpad, x.max() + xpad)
         _x = x + (i - (n_colors - 1) / 2) * bar_width
-        if colors is not None and i < len(colors):
-            color = colors[i]
-        else:
-            color = None
+        color = colors[i]
         if labels is not None and i < len(labels):
             label = labels[i]
         else:
@@ -583,6 +582,17 @@ def _plot_performance(
             ha='right',
             rotation_mode='anchor'
         )
+        # Add "Continuous" label
+        text_x = x[0]
+        _ymin, _ymax = plt.gca().get_ylim()
+        yrange = _ymax - _ymin
+        yoffset = 0. * yrange
+        text_y = _ymax + yoffset
+        plt.text(text_x, text_y, 'Continuous', horizontalalignment='center', verticalalignment='bottom')
+
+        # Add "Binary" label
+        text_x = x[1:].mean()
+        plt.text(text_x, text_y, 'Binary', horizontalalignment='center', verticalalignment='bottom')
     else:
         plt.xticks([], [])
     plt.xlim(xlim)
@@ -613,10 +623,8 @@ def _rename_performance(x):
     for suffix in SUFFIX2NAME:
         if x.endswith(suffix):
             return SUFFIX2NAME[suffix]
-    if x == 'atlas_score':
-        return 'Overall'
     if x.endswith('_score'):
-        return x[:-6]
+        return 'p'
     if x.endswith('_contrast'):
         return x[:-9]
     return x
@@ -732,12 +740,12 @@ def plot_grid(
                     if not os.path.exists(plot_dir):
                         os.makedirs(plot_dir)
                     fig.savefig(
-                        join(plot_dir, '%s_%s_sim.png' % (atlas_name, reference_atlas_name)),
+                        join(plot_dir, '%s_%s_sim_grid.png' % (atlas_name, reference_atlas_name)),
                         dpi=300
                     )
                     if dump_data:
                         __df.to_csv(
-                            join(plot_dir, '%s_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                            join(plot_dir, '%s_%s_sim_grid.csv' % (atlas_name, reference_atlas_name)),
                             index=False
                         )
 
@@ -791,7 +799,7 @@ def plot_grid(
                         if not os.path.exists(plot_dir):
                             os.makedirs(plot_dir)
                         fig.savefig(
-                            join(plot_dir, '%s_%s_sim.png' % (atlas_name, evaluation_atlas_name)),
+                            join(plot_dir, '%s_%s_sim_grid.png' % (atlas_name, evaluation_atlas_name)),
                             dpi=300
                         )
                         if dump_data:
@@ -800,7 +808,7 @@ def plot_grid(
                                 _csv['label'] = labels[i]
                             csv = pd.concat(csv, axis=0)
                             csv.to_csv(
-                                join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
+                                join(plot_dir, '%s_%s_sim_grid.csv' % (atlas_name, evaluation_atlas_name)),
                                 index=False
                             )
 
@@ -831,14 +839,14 @@ def plot_grid(
                             dfb=dfb,
                             labels=labels,
                             selected=selected,
-                            colors=['m', 'gray'],
+                            colors=['gray', 'm'],
                             ylabel=_rename_grid(perf_col)
                         )
 
                         if not os.path.exists(plot_dir):
                             os.makedirs(plot_dir)
                         fig.savefig(
-                            join(plot_dir, '%s_%s_contrast.png' % (atlas_name, evaluation_atlas_name)),
+                            join(plot_dir, '%s_%s_contrast_grid.png' % (atlas_name, evaluation_atlas_name)),
                             dpi=300
                         )
                         if dump_data:
@@ -847,7 +855,7 @@ def plot_grid(
                                 _csv['label'] = labels[i]
                             csv = pd.concat(csv, axis=0)
                             csv.to_csv(
-                                join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
+                                join(plot_dir, '%s_%s_contrast_grid.csv' % (atlas_name, evaluation_atlas_name)),
                                 index=False
                             )
 
@@ -873,15 +881,14 @@ def _plot_grid(
             dfs += dfb
     dfs.append(df)
     i = 0
+    while len(colors) < len(dfs):
+        colors = [None] + colors
     for i, _df in enumerate(dfs):
         label = labels[i]
         x = _df.columns
         y = _df.mean(axis=0)
         yerr = _df.sem(axis=0)
-        if colors and i < len(colors):
-            color = colors[i]
-        else:
-            color = None
+        color = colors[i]
 
         if len(_df) > 1:
             plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)

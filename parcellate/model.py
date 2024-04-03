@@ -872,7 +872,8 @@ def _get_atlas_score(
         atlas,
         reference_atlas,
 ):
-    r = np.corrcoef(reference_atlas, atlas)[0, 1]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        r = np.corrcoef(reference_atlas, atlas)[0, 1]
 
     m, M = atlas.min(), atlas.max()
     if m < 0 or M > 1:
@@ -908,7 +909,8 @@ def _get_evaluation_spcorr(
             else:
                 _atlas = atlas > p
                 suffix = '_atpgt%s' % p
-            r = np.corrcoef(_atlas, evaluation_atlas)[0, 1]
+            with np.errstate(divide='ignore', invalid='ignore'):
+                r = np.corrcoef(_atlas, evaluation_atlas)[0, 1]
             row['%s_score%s' % (evaluation_atlas_name, suffix)] = r
 
     return row
