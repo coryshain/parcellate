@@ -2,6 +2,8 @@ import os
 import subprocess
 import numpy as np
 import pandas as pd
+from scipy import stats
+from nilearn import image
 from tempfile import NamedTemporaryFile
 from urllib.request import urlopen
 import matplotlib.font_manager as fm
@@ -9,12 +11,10 @@ from matplotlib import pyplot as plt
 from PIL import Image
 import textwrap
 import pprint
-from nilearn import image
 import argparse
 
 from parcellate.cfg import *
 from parcellate.util import *
-
 
 
 ######################################
@@ -52,6 +52,14 @@ SUFFIX2NAME = {
     '_atpgt0.8': 'p > 0.8',
     '_atpgt0.9': 'p > 0.9',
 }
+
+
+
+
+
+
+
+
 
 
 ######################################
@@ -357,6 +365,215 @@ def _is_hemi(path):
 
 ######################################
 #
+#  GROUP ATLAS
+#
+######################################
+
+
+def plot_group_atlases(
+        cfg_paths,
+        parcellation_ids=None,
+        atlas_names=None,
+        reference_atlas_names=None,
+        evaluation_atlas_names=None,
+        plot_dir=join('plots', 'group_atlas')
+):
+    if isinstance(cfg_paths, str):
+        cfg_paths = [cfg_paths]
+
+    binary_dir = join(dirname(dirname(dirname(__file__))), 'resources', 'surfice', 'Surf_Ice')
+    assert os.path.exists(binary_dir), ('Surf Ice directory %s not found. Install using '
+        '``python -m parcellate.bin.install_surf_ice``.' % binary_dir)
+    binary_path = None
+    for path in os.listdir(binary_dir):
+        if path in ('surfice', 'surfice.exe'):
+            binary_path = join(binary_dir, path)
+            break
+    assert binary_path, 'No Surf Ice executable found'
+
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+
+    atlases = {}
+    atlas_ref = None
+    for i, cfg_path in enumerate(cfg_paths):
+        stderr('\rRetrieving parcellation %d/%d' % (i + 1, len(cfg_paths)))
+        if not os.path.exists(cfg_path):
+            continue
+        atlas_paths = _get_atlas_paths(
+            cfg_path,
+            parcellation_ids=parcellation_ids,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names
+        )
+
+        for parcellation_id in atlas_paths:
+            for atlas_name in atlas_paths[parcellation_id]['atlases']:
+                if atlas_names is None or atlas_name in atlas_names:
+                    atlas_path = atlas_paths[parcellation_id]['atlases'][atlas_name]
+                    atlas = image.smooth_img(atlas_path, None)
+                    if atlas_ref is None:
+                        atlas_ref = atlas
+                    atlas = image.get_data(atlas)
+                    if parcellation_id not in atlases:
+                        atlases[parcellation_id] = {}
+                    if atlas_name not in atlases[parcellation_id]:
+                        atlases[parcellation_id][atlas_name] = None
+                    if atlases[parcellation_id][atlas_name] is None:
+                        atlases[parcellation_id][atlas_name] = atlas
+                    else:
+                        atlases[parcellation_id][atlas_name] += atlas
+    stderr('\n')
+
+    data_dir = join(plot_dir, 'data')
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+
+    atlas_paths = {}
+    for parcellation_id in atlases:
+        for atlas_name in atlases[parcellation_id]:
+            atlas = atlases[parcellation_id][atlas_name]
+            atlas /= len(cfg_paths)
+            atlas = image.new_img_like(atlas_ref, atlas)
+            output_path = join(data_dir, '%s_%s.nii.gz' % (parcellation_id, atlas_name))
+            if parcellation_id not in atlas_paths:
+                atlas_paths[parcellation_id] = {}
+            atlas_paths[parcellation_id][atlas_name] = output_path
+            atlas.to_filename(output_path)
+
+    script = _get_surf_ice_script_group(
+        atlas_paths,
+        plot_dir=plot_dir
+    )
+
+    subprocess.call([binary_path, '-S', script])
+
+
+def _get_surf_ice_script_group(
+        atlas_paths,
+        plot_dir=join('plots', 'group_atlas')
+):
+    script = textwrap.dedent('''\
+    import sys
+    import os
+    import gl
+
+    CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
+
+    MIN = 0.3
+
+    MAX = 0.5
+
+    X = 400
+    Y = 300
+
+    ''')
+
+    input_paths = []
+    output_paths = []
+    colors = []
+    for parcellation_id in atlas_paths:
+        _plot_dir = join(plot_dir, parcellation_id)
+        if not os.path.exists(_plot_dir):
+            os.makedirs(_plot_dir)
+        atlas_names = sorted(list(atlas_paths[parcellation_id]))
+        output_path = join(_plot_dir, 'plots', '%s_group_atlas_%%s_%%s.png' % '_'.join(atlas_names))
+        output_paths.append(output_path)
+        _input_paths = []
+        for atlas_name in atlas_names:
+            _input_paths.append(atlas_paths[parcellation_id][atlas_name])
+        input_paths.append(_input_paths)
+        if len(_input_paths) <= 3:
+            _colors = [
+                (128, 0, 0, 255, 0, 0),  # Red
+                (0, 0, 128, 0, 0, 255),  # Blue
+                (0, 128, 0, 0, 255, 0),  # Green
+            ]
+        else:
+            _colors = []
+            for _ in range(len(_input_paths)):
+                color_high = np.random.randint(0, 256, size=3)
+                color_low = color_high // 2
+                color = tuple(color_low) + tuple(color_high)
+                _colors.append(color)
+        colors.append(_colors)
+
+    script += 'input_paths = [\n'
+    for _input_paths in input_paths:
+        script += '    [\n'
+        for _input_path in _input_paths:
+            script += "        '%s',\n" % _input_path
+        script += '    ]\n'
+    script += ']\n\n'
+
+    script += 'output_paths = [\n'
+    for output_path in output_paths:
+        script += "    '%s',\n" % output_path
+    script += ']\n\n'
+
+    script += 'colors = [\n'
+    for _colors in colors:
+        script += '    [\n'
+        for _color in _colors:
+            script += "        %s,\n" % str(_color)
+        script += '    ]\n'
+    script += ']\n\n'
+
+    script += textwrap.dedent('''\
+
+
+    def get_path(path):
+        if not os.path.isabs(path):
+            path = os.path.join(CWD, os.path.normpath(path))
+        path = os.path.normpath(path)
+
+        return path
+
+    for output_path, _input_paths, _colors in zip(output_paths, input_paths, colors):
+        output_path = get_path(output_path)
+
+        for hemi in ('left', 'right'):
+            for view in ('lateral', 'medial'):
+                if hemi == 'left':
+                    gl.meshload('BrainMesh_ICBM152.lh.mz3')
+                    if view == 'lateral':
+                        gl.azimuthelevation(-90, 0)
+                    else:
+                        gl.azimuthelevation(90, 0)
+                else:
+                    gl.meshload('BrainMesh_ICBM152.rh.mz3')
+                    if view == 'lateral':
+                        gl.azimuthelevation(90, 0)
+                    else:
+                        gl.azimuthelevation(-90, 0)
+                        
+                for i, (_input_path, _color) in enumerate(zip(_input_paths, _colors)):
+                    path = get_path(_input_path)
+                    gl.overlayload(_input_path)
+                    gl.overlaycolor(i + 1, *_color)
+                    gl.overlayminmax(i + 1, MIN, MAX)
+                    
+                gl.overlayadditive(1)
+                gl.colorbarvisible(0)
+                gl.orientcubevisible(0)
+                gl.cameradistance(0.55)
+
+                output_dir = os.path.dirname(output_path)
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+
+                plot_path = output_path % (hemi, view)
+                gl.savebmpxy(plot_path, X, Y)
+    ''')
+
+    return script
+
+
+
+
+
+######################################
+#
 #  PERFORMANCE
 #
 ######################################
@@ -455,7 +672,7 @@ def plot_performance(
 
                     # Similarity to evaluation
                     cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
-                    cols = [x for x in cols if x in df]
+                    cols = [x for x in cols if x in _df]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
@@ -489,7 +706,7 @@ def plot_performance(
 
                     # Evaluation contrast size
                     cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
-                    cols = [x for x in cols if x in df]
+                    cols = [x for x in cols if x in _df]
                     __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
@@ -630,8 +847,184 @@ def _rename_performance(x):
     return x
 
 
+def plot_performance_by_data_size(
+        cfg_paths,
+        parcellation_ids=None,
+        reference_atlas_names=None,
+        evaluation_atlas_names=None,
+        plot_dir=join('plots', 'performance_by_data_size'),
+        dump_data=False
+):
+    if isinstance(cfg_paths, str):
+        cfg_paths = [cfg_paths]
+    if isinstance(parcellation_ids, str):
+        parcellation_ids = [parcellation_ids]
+
+    dfs = {}
+    for cfg_path in cfg_paths:
+        if not os.path.exists(cfg_path):
+            continue
+        cfg = get_cfg(cfg_path)
+        if parcellation_ids is None:
+            _parcellation_ids = list(cfg['parcellate'].keys())
+        else:
+            _parcellation_ids = parcellation_ids
+        output_dir = cfg['output_dir']
+        for parcellation_id in _parcellation_ids:
+            df_path = get_path(output_dir, 'evaluation', 'parcellate', parcellation_id)
+            if os.path.exists(df_path):
+                if parcellation_id not in dfs:
+                    dfs[parcellation_id] = []
+
+                parcellate_cfg_path = get_path(output_dir, 'kwargs', 'parcellate', parcellation_id)
+                parcellate_cfg = get_cfg(parcellate_cfg_path)
+                sample_id = get_action_attr('sample', parcellate_cfg['action_sequence'], 'id')
+                tr = get_action_attr('sample', parcellate_cfg['action_sequence'], 'kwargs').get('tr', 2)
+                n_trs = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id)).n_trs.unique().tolist()
+                assert len(n_trs) == 1, 'Should have only one value for n_trs, got %d.' % len(n_trs)
+                n_trs = n_trs[0]
+                minutes = (n_trs * tr) / 60
+
+                df = pd.read_csv(df_path)
+                df['cfg_path'] = cfg_path
+                df['minutes'] = minutes
+                dfs[parcellation_id].append(df)
+
+    for parcellation_id in dfs:
+        if not (parcellation_id in dfs and len(dfs[parcellation_id])):
+            continue
+        df = pd.concat(dfs[parcellation_id], axis=0)
+        atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
+        _reference_atlas_names = df['atlas'].unique().tolist()
+        if reference_atlas_names is None:
+            _reference_atlas_names = df['atlas'].unique().tolist()
+        else:
+            _reference_atlas_names = [x for x in reference_atlas_names if x in _reference_atlas_names]
+
+        for atlas_name in atlas_names:
+            for reference_atlas_name in _reference_atlas_names:
+                # Similarity to reference
+                _df = df[(df.parcel == atlas_name)]
+                cols = ['atlas_score', 'minutes']
+                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                xlabel = 'Minutes of fMRI data'
+                ylabel = 'Similarity to Reference'
+                fig = _plot_performance_by_data_size(
+                    __df,
+                    xlabel=xlabel,
+                    ylabel=ylabel
+                )
+                if not os.path.exists(plot_dir):
+                    os.makedirs(plot_dir)
+                fig.savefig(join(plot_dir, '%s_%s_sim_by_data_size.png' % (atlas_name, reference_atlas_name)), dpi=300)
+                if dump_data:
+                    __df.to_csv(
+                        join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, reference_atlas_name)),
+                        index=False
+                    )
+
+                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
+                if evaluation_atlas_names is not None:
+                    _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
+
+                for evaluation_atlas_name in _evaluation_atlas_names:
+                    # Similarity to evaluation
+                    cols = ['%s_score' % evaluation_atlas_name, 'minutes']
+                    cols = [x for x in cols if x in _df]
+                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    xlabel = 'Minutes of fMRI data'
+                    ylabel = 'Similarity to %s' % evaluation_atlas_name
+                    fig = _plot_performance_by_data_size(
+                        __df,
+                        xlabel=xlabel,
+                        ylabel=ylabel
+                    )
+                    if not os.path.exists(plot_dir):
+                        os.makedirs(plot_dir)
+                    fig.savefig(join(plot_dir, '%s_%s_sim_by_data_size.png' % (
+                        atlas_name, evaluation_atlas_name)), dpi=300)
+                    if dump_data:
+                        csv = __df
+                        csv.to_csv(
+                            join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
+                            index=False
+                        )
+
+                    # Evaluation contrast size
+                    cols = ['%s_contrast' % evaluation_atlas_name, 'minutes']
+                    cols = [x for x in cols if x in _df]
+                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    xlabel = 'Minutes of fMRI data'
+                    ylabel = '%s Contrast' % evaluation_atlas_name
+                    fig = _plot_performance_by_data_size(
+                        __df,
+                        xlabel=xlabel,
+                        ylabel=ylabel
+                    )
+                    if not os.path.exists(plot_dir):
+                        os.makedirs(plot_dir)
+                    fig.savefig(join(plot_dir, '%s_%s_contrast_by_data_size.png' % (
+                        atlas_name, evaluation_atlas_name)), dpi=300)
+                    if dump_data:
+                        csv = __df
+                        csv = pd.concat(csv, axis=0)
+                        csv.to_csv(
+                            join(plot_dir, '%s_%s_contrast_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
+                            index=False
+                        )
 
 
+def _plot_performance_by_data_size(
+        df,
+        color='m',
+        xlabel=None,
+        ylabel=None,
+        width=4,
+        height=3,
+):
+    x = df.minutes.values
+    df = df[[col for col in df if col != 'minutes']]
+    y = df.values[..., 0]
+
+    sel = np.isfinite(y)
+    x = x[sel]
+    y = y[sel]
+
+    m, b = np.polyfit(x, y, 1)
+    reg_x = np.linspace(x.min(), x.max(), 500)
+    reg_y = reg_x * m + b
+    r = np.corrcoef(x, y)[0, 1]
+    n = len(y)
+    t = r * np.sqrt((n - 2) / (1 - r**2))
+    p = 2 * (1 - stats.t(n - 2).cdf(np.abs(t)))
+    n_stars = 0
+    if p < 0.001:
+        n_stars = 3
+    elif p < 0.01:
+        n_stars = 2
+    elif p < 0.05:
+        n_stars = 1
+
+    plt.close('all')
+    plt.scatter(x, y, color=color, marker='.', s=10, linewidth=0, zorder=1, alpha=0.2)
+    plt.plot(reg_x, reg_y, color=color, linestyle='solid', zorder=2)
+    plt.text(
+        1, 1, 'r = %0.2f%s' % (r, '*' * n_stars), horizontalalignment='right', verticalalignment='top',
+        transform=plt.gca().transAxes, fontsize=12
+    )
+
+    plt.xlabel(xlabel)
+    if ylabel:
+        plt.ylabel(ylabel)
+
+    plt.ylim(tuple(np.quantile(y, [0.05, 0.95])))
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
+    plt.gca().axhline(y=0, lw=1, c='k', alpha=1)
+    plt.gcf().set_size_inches(width, height)
+    plt.tight_layout()
+
+    return plt.gcf()
 
 
 
@@ -977,8 +1370,9 @@ if __name__ == '__main__':
     argparser.add_argument('cfg_paths', nargs='+', help=textwrap.dedent('''\
         Path(s) to parcellate config files (config.yml) to plot.'''
     ))
-    argparser.add_argument('-t', '--plot_type', nargs='+', default=['all'], help=textwrap.dedent('''\
-        Type of plot to generate. One of ``atlas``, ``performance``, ``grid``, or ``all``.
+    argparser.add_argument('-t', '--plot_type', nargs='+', default=['performance'], help=textwrap.dedent('''\
+        Type of plot to generate. One of ``atlas``, ``group_atlas``, ``performance``, ``performance_by_data_size``, 
+        ``grid``, or ``all``. Defaults to ["performance"].
     '''))
     argparser.add_argument('-p', '--parcellation_ids', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of parcellation(s) to use for plotting. If None, use all available parcellations.
@@ -986,6 +1380,9 @@ if __name__ == '__main__':
     argparser.add_argument('-a', '--aggregation_ids', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of aggregation(s) to use for plotting. If None, use all available parcellations.
     '''))
+    argparser.add_argument('-A', '--atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
+        Name(s) of parcellation atlas(es) to use for plotting. If None, use all available parcellation atlases.'''
+    ))
     argparser.add_argument('-r', '--reference_atlas_names', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of reference atlas(es) to use for plotting. If None, use all available reference atlases.'''
     ))
@@ -1013,6 +1410,7 @@ if __name__ == '__main__':
     plot_type = set(args.plot_type)
     parcellation_ids = args.parcellation_ids
     aggregation_ids = args.aggregation_ids
+    atlas_names = args.atlas_names
     reference_atlas_names = args.reference_atlas_names
     evaluation_atlas_names = args.evaluation_atlas_names
     baseline_atlas_names = args.baseline_atlas_names
@@ -1028,7 +1426,15 @@ if __name__ == '__main__':
             reference_atlas_names,
             evaluation_atlas_names
         )
-    if plot_type  & {'performance', 'all'}:
+    if plot_type & {'group_atlas', 'all'}:
+        plot_group_atlases(
+            cfg_paths,
+            parcellation_ids=parcellation_ids,
+            atlas_names=atlas_names,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names,
+        )
+    if plot_type & {'performance', 'all'}:
         plot_performance(
             cfg_paths,
             parcellation_ids=parcellation_ids,
@@ -1037,6 +1443,15 @@ if __name__ == '__main__':
             baseline_atlas_names=baseline_atlas_names,
             include_thresholds=include_thresholds,
             plot_dir=join(output_dir, 'performance'),
+            dump_data=dump_data
+        )
+    if plot_type & {'performance_by_data_size', 'all'}:
+        plot_performance_by_data_size(
+            cfg_paths,
+            parcellation_ids=parcellation_ids,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names,
+            plot_dir=join(output_dir, 'performance_by_data_size'),
             dump_data=dump_data
         )
     if plot_type & {'grid', 'all'}:

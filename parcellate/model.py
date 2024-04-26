@@ -36,6 +36,8 @@ def sample(
         standardize=True,
         normalize=False,
         detrend=False,
+        independent_runs=False,
+        data_fraction=1,
         tr=2,
         low_pass=0.1,
         high_pass=0.01,
@@ -46,6 +48,7 @@ def sample(
         indent=0
 ):
     assert isinstance(sample_id, str), 'sample_id must be given as a str'
+    assert 0 <= data_fraction <= 1, 'data_fraction must be a proportion between 0 and 1'
 
     t0 = time.time()
 
@@ -68,6 +71,8 @@ def sample(
             standardize=standardize,
             normalize=normalize,
             detrend=detrend,
+            independent_runs=independent_runs,
+            data_fraction=data_fraction,
             tr=tr,
             low_pass=low_pass,
             high_pass=high_pass,
@@ -99,24 +104,40 @@ def sample(
         high_pass=high_pass
     )
     v = input_data.v
-    timecourses = input_data.timecourses
-
     df = pd.DataFrame([dict(n_trs=input_data.n_trs, n_runs=input_data.n_runs)])
     eval_path = get_path(output_dir, 'evaluation', 'sample', sample_id)
     df.to_csv(eval_path, index=False)
 
-    # Sample parcellations by clustering the voxel timecourses
-    if n_networks > 256:
-        dtype=np.uint16
+    n_runs = input_data.n_runs
+    samples_all = []
+    if independent_runs:
+        timecourses = input_data.functionals
     else:
-        dtype=np.uint8
-    samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_samples, n_networks, n_voxels>
-    for i in range(n_samples):
-        stderr('\r%sSample %d/%d' % (' ' * (indent * 2), i + 1, n_samples))
-        m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
-        _sample = m.fit_predict(timecourses)
-        samples[:, i] = _sample
-    stderr('\n')
+        timecourses = [input_data.timecourses]
+    for i, timecourse in enumerate(timecourses):
+        # Sample parcellations by clustering the voxel timecourses
+        if n_networks > 256:
+            dtype=np.uint16
+        else:
+            dtype=np.uint8
+        samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_samples, n_networks, n_voxels>
+        for j in range(n_samples):
+            if len(timecourses) > 1:
+                suffix = ' for run %d/%d' % (i + 1, n_runs)
+            else:
+                suffix = ''
+            stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
+            if data_fraction < 1:
+                temporal_mask = np.random.random(timecourse.shape[-1]) < data_fraction
+                _timecourse = timecourse[:, temporal_mask]
+            else:
+                _timecourse = timecourse
+            m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
+            _sample = m.fit_predict(_timecourse)
+            samples[:, j] = _sample
+        stderr('\n')
+        samples_all.append(samples)
+    samples = np.concatenate(samples_all, axis=-1)
     samples = input_data.unflatten(samples)
     samples.to_filename(output_path)
 
