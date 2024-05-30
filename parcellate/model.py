@@ -840,6 +840,8 @@ def parcellate(
         evaluation_id = get_action_attr('evaluate', action_sequence, 'id')
         aggregation_id = get_action_attr('aggregate', action_sequence_full, 'id')
 
+        parcellate_kwargs = get_action_attr('parcellate', action_sequence, 'kwargs')
+
         n = len(action_sequence)
         N = len(action_sequence_full)
         for a, action in enumerate(action_sequence):
@@ -865,6 +867,9 @@ def parcellate(
                         output_dir=output_dir,
                         sample_id=sample_id
                     ))
+                    if action_type in parcellate_kwargs:
+                        for key in parcellate_kwargs[action_type]:
+                            action_kwargs[key] = parcellate_kwargs[action_type][key]
                     sample(**action_kwargs, indent=indent)
                 else:
                     stderr('%sSample exists. Skipping. To resample, run with overwrite=True.\n' %
@@ -876,6 +881,9 @@ def parcellate(
                         alignment_id=alignment_id,
                         sample_id=sample_id
                     ))
+                    if action_type in parcellate_kwargs:
+                        for key in parcellate_kwargs[action_type]:
+                            action_kwargs[key] = parcellate_kwargs[action_type][key]
                     align(**action_kwargs, indent=indent)
                 else:
                     stderr('%sAlignment exists. Skipping. To re-align, run with overwrite=True.\n' %
@@ -887,6 +895,9 @@ def parcellate(
                         evaluation_id=evaluation_id,
                         alignment_id=alignment_id
                     ))
+                    if action_type in parcellate_kwargs:
+                        for key in parcellate_kwargs[action_type]:
+                            action_kwargs[key] = parcellate_kwargs[action_type][key]
                     evaluate(**action_kwargs, indent=indent)
                 else:
                     stderr('%sEvaluation exists. Skipping. To re-evaluate, run with overwrite=True.\n' %
