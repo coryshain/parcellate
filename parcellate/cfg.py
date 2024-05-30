@@ -97,7 +97,8 @@ def get_action_sequence(
             action_type = 'align'
             action_id = None
     elif action_type == 'parcellate':
-        if 'aggregation_id' in cfg[action_type][action_id]:
+        if ('aggregation_id' in cfg[action_type][action_id] and
+                cfg[action_type][action_id]['aggregation_id'] is not None):
             action_id = cfg[action_type][action_id].get('aggregation_id', None)
             action_type = 'aggregate'
         elif 'evaluation_id' in cfg[action_type][action_id]:
@@ -106,7 +107,8 @@ def get_action_sequence(
         elif 'alignment_id' in cfg[action_type][action_id]:
             action_id = cfg[action_type][action_id].get('alignment_id', None)
             action_type = 'align'
-        elif 'aggregate' in cfg:
+        elif ('aggregate' in cfg and 'grid' in cfg and len(cfg['grid']) and
+                cfg[action_type][action_id].get('aggregation_id', 'not found') is not None):
             action_type = 'aggregate'
             action_id = None
         elif 'evaluate' in cfg:

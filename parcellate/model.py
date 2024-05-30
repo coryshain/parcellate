@@ -150,6 +150,8 @@ def align(
         alignment_id=None,
         sample_id=None,
         average_first=False,
+        scoring_method='corr',
+        atlas_threshold=None,
         max_subnetworks=None,
         minmax_normalize=True,
         use_poibin=True,
@@ -165,6 +167,7 @@ def align(
 
     stderr('%sAligning (alignment_id=%s)\n' % (' ' * (indent * 2), alignment_id))
     indent += 1
+    scoring_method = scoring_method.lower()
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
 
@@ -177,6 +180,8 @@ def align(
             alignment_id=alignment_id,
             sample_id=sample_id,
             average_first=average_first,
+            scoring_method=scoring_method,
+            atlas_threshold=atlas_threshold,
             max_subnetworks=max_subnetworks,
             minmax_normalize=minmax_normalize,
             use_poibin=use_poibin,
@@ -211,19 +216,36 @@ def align(
     # We do a sparse alignment with slow python loops to avoid OOM for large n_samples or n_networks
 
     # Rank samples by average best alignment to reference atlas(es)
+    # Ignored by computation of specific per-reference networks unless average_first == True
     sample_scores = np.zeros(n_samples)
     _reference_atlases = np.stack(
         [reference_atlases[x] for x in reference_atlases],
         axis=0
     )
-    _reference_atlases_z = standardize_array(_reference_atlases)
+    if atlas_threshold is not None:
+        _reference_atlases = binarize_array(_reference_atlases, threshold=atlas_threshold)
+    _reference_atlases = _reference_atlases.astype(float)
+    if scoring_method == 'corr':
+        _reference_atlases = standardize_array(_reference_atlases)
     for si in range(n_samples):
-        s = samples[si][None, ...] == np.arange(n_networks)[..., None]
-        s_z = standardize_array(s)
-        scores = np.dot(
-            s_z,
-            _reference_atlases_z.T
-        ) / v
+        s = (samples[si][None, ...] == np.arange(n_networks)[..., None]).astype(float)
+        if scoring_method == 'corr':
+            s = standardize_array(s)
+            scores = np.dot(
+                s,
+                _reference_atlases.T
+            ) / v
+        elif scoring_method == 'avg':
+            num = np.dot(
+                s,
+                _reference_atlases.T
+            )
+            denom = s.sum(axis=-1, keepdims=True)
+            denom[np.where(denom == 0)] = 1
+            scores = num / denom
+        else:
+            raise ValueError('Unrecognized scoring method %s.' % scoring_method)
+        # Average if needed over > 1 reference atlases
         scores = np.tanh(np.arctanh(scores * (1 - 2 * eps) + eps).mean(axis=-1))
         r = scores.max()
         sample_scores[si] = r
@@ -233,7 +255,7 @@ def align(
     ref_ix = np.argmax(sample_scores)
 
     # Align to reference
-    parcellation = align_samples(samples, ref_ix, w=sample_scores)
+    parcellation = align_samples(samples, ref_ix, scoring_method=scoring_method, w=sample_scores)
 
     # Find candidate network(s) for each reference
     n_reference_atlases = len(reference_atlas_names)
@@ -242,22 +264,42 @@ def align(
     results = []
     for j, reference_atlas_name in enumerate(reference_atlas_names):
         reference_atlas = reference_atlases[reference_atlas_name]
+        if atlas_threshold is not None:
+            _reference_atlas = binarize_array(reference_atlas, threshold=atlas_threshold)
+        else:
+            _reference_atlas = reference_atlas
         if average_first:
             scores = np.zeros(n_networks)
             for ni in range(n_networks):
-                scores[ni] = np.corrcoef(parcellation[ni], reference_atlas)[0, 1]
+                if scoring_method == 'corr':
+                    _score = np.corrcoef(parcellation[ni], _reference_atlas)[0, 1]
+                elif scoring_method == 'avg':
+                    _score = np.dot(parcellation[ni], _reference_atlas) / parcellation[ni]
+                else:
+                    raise ValueError('Unrecognized scoring method %s.' % scoring_method)
+                scores[ni] = _score
             reference_ix = np.argsort(scores, axis=-1)[::-1]
         else:
             samples_relabeled = np.zeros_like(samples)
             scores = np.zeros((n_samples, n_networks))
-            reference_atlas_z = standardize_array(reference_atlas)
+            if scoring_method == 'corr':
+                _reference_atlas = standardize_array(_reference_atlas)
             for si in range(n_samples):
-                networks = samples[si][None, ...] == np.arange(n_networks)[..., None]
-                networks_z = standardize_array(networks)
-                _scores = np.dot(
-                    networks_z,
-                    reference_atlas_z.T
-                ) / v
+                networks = (samples[si][None, ...] == np.arange(n_networks)[..., None]).astype(float)
+                if scoring_method == 'corr':
+                    _networks = standardize_array(networks)
+                    _scores = np.dot(
+                        _networks,
+                        _reference_atlas.T
+                    ) / v
+                else:
+                    num = np.dot(
+                        networks,
+                        _reference_atlas.T
+                    )
+                    denom = networks.sum(axis=-1)
+                    denom[np.where(denom == 0)] = 1
+                    _scores = num / denom
                 sort_ix = np.argsort(_scores)[::-1]
                 ranks = np.argsort(sort_ix)
                 scores[si] = _scores[sort_ix]
@@ -656,7 +698,7 @@ def parcellate(
 
     overwrite = get_overwrite(overwrite)
 
-    use_grid = get_action_attr('parcellate', action_sequence, 'kwargs').get('use_grid', True)
+    use_grid = aggregation_id is not None
 
     parcellation_dir = get_path(output_dir, 'subdir', 'parcellate', parcellation_id)
     if not os.path.exists(parcellation_dir):

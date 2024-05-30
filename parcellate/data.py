@@ -24,6 +24,12 @@ def standardize_array(arr, axis=-1):
     return out
 
 
+def binarize_array(arr, threshold=0.):
+    out = (arr > threshold).astype(arr.dtype)
+
+    return out
+
+
 def detrend_array(arr, axis=1):
     return signal.detrend(arr, axis=axis)
 
@@ -87,37 +93,53 @@ def get_shape_from_parcellations(parcellations):
 
     return n_samples, v, n_networks
 
-def align_samples(parcellations, ref_ix, w=None):
-    n_samples, v, n_networks = get_shape_from_parcellations(parcellations)
+def align_samples(samples, ref_ix, scoring_method='corr', w=None):
+    scoring_method = scoring_method.lower()
+    n_samples, v, n_networks = get_shape_from_parcellations(samples)
     parcellation = np.zeros((n_networks, v))
-    reference = parcellations[ref_ix]
-    if len(parcellations.shape) == 2:
-        reference = reference[None, ...] == np.arange(n_networks)[..., None]
+    reference = samples[ref_ix]
+    if len(samples.shape) == 2:
+        reference = (reference[None, ...] == np.arange(n_networks)[..., None]).astype(float)
     else:
-        reference = reference.T
-    reference_z = standardize_array(reference)
+        reference = reference.T.astype(float)
+    if scoring_method == 'corr':
+        _reference = standardize_array(reference)
+    else:
+        _reference = reference
 
     # Align subsequent samples
     for si in range(n_samples):
         if w is None or w[si]:
-            if len(parcellations.shape) == 2:
-                _parcellation = parcellations[si][None, ...] == np.arange(n_networks)[..., None]
+            if len(samples.shape) == 2:
+                s = (samples[si][None, ...] == np.arange(n_networks)[..., None]).astype(float)
             else:
-                _parcellation = parcellations[si].T
+                s = samples[si].T.astype(float)
             if si != ref_ix:
-                _parcellation_z = standardize_array(_parcellation)
-                scores = np.dot(
-                    reference_z,
-                    _parcellation_z.T
-                ) / v
+                if scoring_method == 'corr':
+                    s = standardize_array(s)
+                    scores = np.dot(
+                        s,
+                        _reference.T
+                    ) / v
+                elif scoring_method == 'avg':
+                    num = np.dot(
+                        s,
+                        _reference.T
+                    )
+                    denom = s.sum(axis=-1, keepdims=True)
+                    denom[np.where(denom == 0)] = 1
+                    scores = num / denom
+                else:
+                    raise ValueError('Unrecognized scoring method %s.' % scoring_method)
+
                 ix_l, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
                 # Make sure networks are sorted in the same order as current parcellation
                 sort_ix = np.argsort(ix_l)
                 ix_l, ix_r = ix_l[sort_ix], ix_r[sort_ix]
-                _parcellation = _parcellation[ix_r]
+                s = s[ix_r]
                 if w is not None:
-                    _parcellation = _parcellation * w[si]
-            parcellation = parcellation + _parcellation
+                    s = s * w[si]
+            parcellation = parcellation + s
     if w is not None:
         denom = w.sum()
     else:
@@ -142,32 +164,6 @@ def purge_bad_nii(path, compressed=True):
                     stderr('Exception:\n')
                     stderr(textwrap.indent(str(e), '    '))
                     os.remove(_path)
-
-
-def score_by_reference_atlases(parcellations, reference_atlases, eps=1e-3):
-    n_samples, v, n_networks = get_shape_from_parcellations(parcellations)
-    sample_scores = np.zeros(n_samples)
-    _reference_atlases = np.stack(
-        [reference_atlases[x] for x in reference_atlases],
-        axis=0
-    )
-    _reference_atlases_z = standardize_array(_reference_atlases)
-    for si in range(n_samples):
-        s = parcellations[si][None, ...] == np.arange(n_networks)[..., None]
-        s_z = standardize_array(s)
-        scores = np.dot(
-            s_z,
-            _reference_atlases_z.T
-        ) / v
-        scores = np.tanh(np.arctanh(scores * (1 - 2 * eps) + eps).mean(axis=-1))
-        r = scores.max()
-        sample_scores[si] = r
-    # Flip sign to ensure descending sort on average similarity
-    sample_scores = sample_scores
-    ref_ix = np.argmax(sample_scores)
-    sample_scores = minmax_normalize_array(sample_scores)
-
-    return sample_scores
 
 
 class Data:
