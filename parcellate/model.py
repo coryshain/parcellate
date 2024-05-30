@@ -274,7 +274,7 @@ def align(
                 if scoring_method == 'corr':
                     _score = np.corrcoef(parcellation[ni], _reference_atlas)[0, 1]
                 elif scoring_method == 'avg':
-                    _score = np.dot(parcellation[ni], _reference_atlas) / parcellation[ni]
+                    _score = np.dot(parcellation[ni], _reference_atlas) / parcellation[ni].sum()
                 else:
                     raise ValueError('Unrecognized scoring method %s.' % scoring_method)
                 scores[ni] = _score
@@ -337,7 +337,15 @@ def align(
                 candidate = np.clip(
                     np.stack(candidate_list, axis=-1).sum(axis=-1), 0, 1
                 )
-            r = np.corrcoef(candidate, reference_atlas)[0, 1]
+            if scoring_method == 'corr':
+                r = np.corrcoef(candidate, reference_atlas)[0, 1]
+            elif scoring_method == 'avg':
+                r = np.dot(candidate, reference_atlas) / candidate.sum()
+            else:
+                raise ValueError('Unrecognized scoring method %s.' % scoring_method)
+
+            print(ni, r, r_prev)
+
             if r <= r_prev:
                 candidate_list = candidate_list[:-1]
                 candidate_scores = candidate_scores[:-1]
