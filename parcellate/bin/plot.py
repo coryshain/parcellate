@@ -53,9 +53,48 @@ SUFFIX2NAME = {
     '_atpgt0.9': 'p > 0.9',
 }
 
+COLORS = np.array([
+    [255, 0, 0],      # Red
+    [0, 0, 255],      # Blue
+    [0, 255, 0],      # Green
+    [0, 255, 255],    # Cyan
+    [255, 0, 255],    # Magenta
+    [255, 255, 0],    # Yellow
+    [255, 128, 0],    # Orange
+    [255, 0, 128],    # Pink
+    [128, 255, 0],    # Lime
+    [0, 128, 255],    # Aqua
+    [128, 0, 255],    # Violet
+    [0, 255, 128],    # Teal
+    [255, 64, 0],     # Fire
+    [255, 0, 64],     # Hot Pink
+    [0, 64, 255],     # Ocean
+], dtype=int)
 
 
 
+
+
+
+
+
+######################################
+#
+#  UTILITIES
+#
+######################################
+
+def sample_color():
+    r, g, b = np.random.random(size=3)
+    max_val = max(r, g, b)
+    r = round(r / max_val * 255)
+    g = round(g / max_val * 255)
+    b = round(b / max_val * 255)
+    r0 = round(r / 2)
+    g0 = round(g / 2)
+    b0 = round(b / 2)
+
+    return r0, g0, b0, r, g, b
 
 
 
@@ -72,13 +111,14 @@ SUFFIX2NAME = {
 def plot_atlases(
         cfg_paths,
         parcellation_ids=None,
+        subnetwork_id=1,
         reference_atlas_names=None,
         evaluation_atlas_names=None
 ):
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
 
-    binary_dir = join(dirname(dirname(dirname(__file__))), 'resources', 'surfice', 'Surf_Ice')
+    binary_dir = join(dirname(dirname(__file__)), 'resources', 'surfice', 'Surf_Ice')
     assert os.path.exists(binary_dir), ('Surf Ice directory %s not found. Install using '
         '``python -m parcellate.bin.install_surf_ice``.' % binary_dir)
     binary_path = None
@@ -90,12 +130,19 @@ def plot_atlases(
 
     script = _get_surf_ice_script(
         cfg_paths,
-        parcellation_ids,
-        reference_atlas_names,
+        parcellation_ids=parcellation_ids,
+        subnetwork_id=subnetwork_id,
+        reference_atlas_names=reference_atlas_names,
         evaluation_atlas_names=evaluation_atlas_names
     )
 
-    subprocess.call([binary_path, '-S', script])
+    tmp_path = 'PARCELLATE_SURFICE_SCRIPT_TMP.py'
+    with open(tmp_path, 'w') as f:
+        f.write(script)
+
+    subprocess.call([binary_path, '-S', tmp_path])
+
+    os.remove(tmp_path)
 
     for cfg_path in cfg_paths:
         if not os.path.exists(cfg_path):
@@ -114,13 +161,16 @@ def plot_atlases(
                     img_prefixes.add(img_prefix)
                 for img_prefix in img_prefixes:
                     imgs = []
+                    img_paths = []
                     for hemi in ('left', 'right'):
                         if hemi == 'left':
                             views = ('lateral', 'medial')
                         else:
                             views = ('medial', 'lateral')
                         for view in views:
-                            imgs.append(Image.open(img_prefix + '_%s_%s.png' % (hemi, view)))
+                            img_path = img_prefix + '_%s_%s.png' % (hemi, view)
+                            imgs.append(Image.open(img_path))
+                            img_paths.append(img_path)
                     widths, heights = zip(*(i.size for i in imgs))
                     total_width = sum(widths)
                     max_height = max(heights)
@@ -130,6 +180,8 @@ def plot_atlases(
                         new_im.paste(im, (x_offset, 0))
                         x_offset += im.size[0]
                     new_im.save('%s.png' % img_prefix)
+                    for img_path in img_paths:
+                        os.remove(img_path)
 
 
 def _get_atlas_paths(
@@ -157,7 +209,7 @@ def _get_atlas_paths(
     suffix = get_suffix(compressed=compressed)
 
     if parcellation_ids is None:
-        parcellation_ids = os.listdir(join(output_dir, 'parcellation'))
+        parcellation_ids = list(cfg['parcellate'].keys())
     for parcellation_id in parcellation_ids:
         parcellation_dir = get_path(output_dir, 'subdir', 'parcellate', parcellation_id, compressed=compressed)
         if os.path.exists(parcellation_dir):
@@ -167,7 +219,7 @@ def _get_atlas_paths(
                 atlases={}
             )
             for filename in [x for x in os.listdir(parcellation_dir) if x.endswith(suffix)]:
-                filepath = join(parcellation_dir, filename)
+                filepath = os.path.realpath(join(parcellation_dir, filename))
                 if filename.startswith(REFERENCE_ATLAS_PREFIX):
                     reference_atlas_name = filename[len(REFERENCE_ATLAS_PREFIX):-len(suffix)]
                     if reference_atlas_names is None or reference_atlas_name in reference_atlas_names:
@@ -179,6 +231,22 @@ def _get_atlas_paths(
                 elif not filename.startswith('parcellation'):
                     atlas_name = filename[:-len(suffix)]
                     out[parcellation_id]['atlases'][atlas_name] = filepath
+            parcellate_kwargs_path = get_path(output_dir, 'kwargs', 'parcellate', parcellation_id, compressed=compressed)
+            parcellate_kwargs = get_cfg(parcellate_kwargs_path)
+            reference_to_evaluation = {}
+            for x in parcellate_kwargs['action_sequence']:
+                if x['type'] == 'evaluate':
+                    evaluate_kwargs = x['kwargs']
+                    evaluation_map = evaluate_kwargs.get(
+                        'evaluation_map',
+                        out[parcellation_id]['reference_atlases'].keys()
+                    )
+                    for reference_atlas in evaluation_map:
+                        reference_to_evaluation[reference_atlas] = []
+                        for evaluation_atlas in evaluation_map[reference_atlas]:
+                            reference_to_evaluation[reference_atlas].append(evaluation_atlas)
+
+            out[parcellation_id]['reference_to_evaluation'] = reference_to_evaluation
 
     return out
 
@@ -186,8 +254,15 @@ def _get_atlas_paths(
 def _get_surf_ice_script(
         cfg_paths,
         parcellation_ids=None,
+        subnetwork_id=1,
         reference_atlas_names=None,
-        evaluation_atlas_names=None
+        evaluation_atlas_names=None,
+        min_p=0.3,
+        max_p=0.5,
+        min_act=0.3,
+        max_act=0.5,
+        x_res=400,
+        y_res=300
 ):
     script = textwrap.dedent('''\
     import sys
@@ -196,35 +271,18 @@ def _get_surf_ice_script(
 
     CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
 
-    MIN = dict(
-        reference=0.3,
-        evaluation=0.2,
-        atlas=0.3
-    )
+    def get_path(path):
+        if not os.path.isabs(path):
+            path = os.path.join(CWD, os.path.normpath(path))
+        path = os.path.normpath(path)
 
-    MAX = dict(
-        reference=0.5,
-        evaluation=1,
-        atlas=0.5
-    )
+        return path
 
-    IX = dict(
-        reference=1,
-        evaluation=1,
-        atlas=2
-    )
-
-    COLOR = dict(
-        reference=(0, 128, 0, 0, 255, 0),  # Green
-        evaluation=(0, 0, 128, 0, 0, 255), # Blue
-        atlas=(128, 0, 0, 255, 0, 0),      # Red
-    )
-
-    X = 400
-    Y = 300
+    X = %s
+    Y = %s
 
     plot_sets = [
-    ''')
+    ''' % (x_res, y_res))
 
     for cfg_path in cfg_paths:
         if not os.path.exists(cfg_path):
@@ -237,70 +295,120 @@ def _get_surf_ice_script(
         )
 
         for parcellation_id in atlas_paths:
-            for atlas_name in atlas_paths[parcellation_id]['atlases']:
-                atlas_path = atlas_paths[parcellation_id]['atlases'][atlas_name]
-                for reference_atlas_name in atlas_paths[parcellation_id]['reference_atlases']:
-                    reference_atlas_path = atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name]
-                    output_dir = dirname(atlas_path)
-                    output_path = join(output_dir, 'plots', '%s_vs_%s_atlas_%s_%%s_%%s.png' % (
-                        atlas_name, 'reference', reference_atlas_name))
+            if subnetwork_id:
+                suffix = '_sub%d' % subnetwork_id
+            else:
+                suffix = ''
+
+            # Full parcellation
+            plot_set = {}
+            output_path = None
+            colors = COLORS
+            colors = np.concatenate([(colors / 2).round().astype(int), colors], axis=1).tolist()
+            for i, reference_atlas_name in enumerate(atlas_paths[parcellation_id]['reference_atlases']):
+                atlas_name = reference_atlas_name + suffix
+                if atlas_name in atlas_paths[parcellation_id]['atlases']:
+                    if output_path is None:
+                        output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
+                        output_path = join(output_dir, 'plots', 'parcellation%s_%%s_%%s.png' % suffix)
+
+                    if i > len(colors):
+                        color = sample_color()
+                    else:
+                        color = colors[i]
+
+                    plot_set[reference_atlas_name] = dict(
+                        name=atlas_name,
+                        path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                        output_path=output_path,
+                        color=color,
+                        min=min_p,
+                        max=max_p
+                    )
+            script += '    %s,\n' % pprint.pformat(plot_set)
+
+            # By network
+            for reference_atlas_name in atlas_paths[parcellation_id]['reference_atlases']:
+                atlas_name = reference_atlas_name + suffix
+                output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
+
+                # Subnetworks
+                output_path = join(output_dir, 'plots', '%s_subnetworks_%%s_%%s.png' % reference_atlas_name)
+                subatlases = {}
+                for x in atlas_paths[parcellation_id]['atlases']:
+                    if re.sub('_sub\d+$', '_sub', x) == reference_atlas_name + '_sub':
+                        ix = int(re.match(reference_atlas_name + '_sub(\d+)', x).group(1))
+                        subatlases[ix] = atlas_paths[parcellation_id]['atlases'][x]
+                green = np.linspace(0, 255, len(subatlases)).astype(int)
+                colors = np.stack([[255] * len(green), green, [0] * len(green)], axis=1)
+                colors = np.concatenate([(colors / 2).round().astype(int), colors], axis=1)
+                colors = colors.tolist()
+                plot_set = {}
+                for i, ix in enumerate(sorted(list(subatlases.keys()))):
+                    plot_set[ix] = dict(
+                        name=reference_atlas_name + '_sub%d' % ix,
+                        path=subatlases[ix],
+                        output_path=output_path,
+                        color=colors[i],
+                        min=min_p,
+                        max=max_p
+                    )
+                script += '    %s,\n' % pprint.pformat(plot_set)
+
+                # Network vs. reference
+                if atlas_name in atlas_paths[parcellation_id]['atlases']:
+                    output_path = join(output_dir, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name)
                     plot_set = dict(
                         atlas=dict(
                             name=atlas_name,
-                            path=atlas_path,
+                            path=atlas_paths[parcellation_id]['atlases'][atlas_name],
                             output_path=output_path,
+                            color=(128, 0, 0, 255, 0, 0),
+                            min=min_p,
+                            max=max_p
                         ),
                         reference=dict(
                             name=reference_atlas_name,
-                            path=reference_atlas_path
-                        )
+                            path=atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name],
+                            output_path=output_path,
+                            color=(0, 128, 0, 0, 255, 0),
+                            min=min_p,
+                            max=max_p
+                        ),
                     )
                     script += '    %s,\n' % pprint.pformat(plot_set)
 
-                for evaluation_atlas_name in atlas_paths[parcellation_id]['evaluation_atlases']:
-                    evaluation_atlas_path = atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name]
-                    output_dir = dirname(atlas_path)
-                    output_path = join(output_dir, 'plots', '%s_vs_%s_atlas_%s_%%s_%%s.png' % (
-                        atlas_name, 'evaluation', evaluation_atlas_name))
-                    plot_set = dict(
-                        atlas=dict(
-                            name=atlas_name,
-                            path=atlas_path,
-                            output_path=output_path,
-                        ),
-                        evaluation=dict(
-                            name=evaluation_atlas_name,
-                            path=evaluation_atlas_path
+                    # Network vs. evaluation
+                    reference_to_evaluation = atlas_paths[parcellation_id]['reference_to_evaluation']
+                    for evaluation_atlas_name in reference_to_evaluation.get(reference_atlas_name, []):
+                        output_path = join(
+                            output_dir, 'plots', '%s_vs_%s_%%s_%%s.png' % (atlas_name, evaluation_atlas_name)
                         )
-                    )
-                    script += '    %s,\n' % pprint.pformat(plot_set)
+                        plot_set = dict(
+                            atlas=dict(
+                                name=atlas_name,
+                                path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                                output_path=output_path,
+                                color=(128, 0, 0, 255, 0, 0),
+                                min=min_p,
+                                max=max_p
+                            ),
+                            evaluation=dict(
+                                name=evaluation_atlas_name,
+                                path=atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name],
+                                output_path=output_path,
+                                color=(0, 0, 128, 0, 0, 255),
+                                min=min_act,
+                                max=max_act
+                            ),
+                        )
+                        script += '    %s,\n' % pprint.pformat(plot_set)
+
     script += ']\n'
 
     script += textwrap.dedent('''\
 
-
-    def get_path(path):
-        if not os.path.isabs(path):
-            path = os.path.join(CWD, os.path.normpath(path))
-        path = os.path.normpath(path)
-
-        return path
-
     for plot_set in plot_sets:
-        atlas = plot_set['atlas']
-        output_path = get_path(plot_set['atlas']['output_path'])
-        comparison = plot_set.get('reference', None)
-        if comparison is None:
-            comparison = plot_set.get('evaluation', None)
-            comparison_type = 'evaluation'
-        else:
-            comparison_type = 'reference'
-
-        comparison_name = comparison['name']
-        comparison_path = get_path(comparison['path'])
-        atlas_name = atlas['name']
-        atlas_path = get_path(atlas['path'])
-
         for hemi in ('left', 'right'):
             for view in ('lateral', 'medial'):
                 if hemi == 'left':
@@ -315,14 +423,21 @@ def _get_surf_ice_script(
                         gl.azimuthelevation(90, 0)
                     else:
                         gl.azimuthelevation(-90, 0)
-
-                gl.overlayload(comparison_path)
-                gl.overlaycolor(IX[comparison_type], *COLOR[comparison_type])
-                gl.overlayminmax(IX[comparison_type], MIN[comparison_type], MAX[comparison_type])
-                gl.overlayload(atlas_path)
-                gl.overlaycolor(IX['atlas'], *COLOR['atlas'])
-                gl.overlayminmax(IX['atlas'], MIN['atlas'], MAX['atlas'])
-                gl.overlayadditive(1)
+                output_path = None
+                colors = None
+                for i, atlas_name in enumerate(plot_set):
+                    if output_path is None:
+                        output_path = get_path(plot_set[atlas_name]['output_path'])
+                    if colors is None:
+                        color = plot_set[atlas_name]['color']
+                    atlas_path = get_path(plot_set[atlas_name]['path'])
+                    min_act = plot_set[atlas_name]['min']
+                    max_act = plot_set[atlas_name]['max']
+    
+                    gl.overlayload(atlas_path)
+                    gl.overlaycolor(i + 1, *color)
+                    gl.overlayminmax(i + 1, min_act, max_act)
+                    
                 gl.colorbarvisible(0)
                 gl.orientcubevisible(0)
                 gl.cameradistance(0.55)
@@ -381,7 +496,7 @@ def plot_group_atlases(
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
 
-    binary_dir = join(dirname(dirname(dirname(__file__))), 'resources', 'surfice', 'Surf_Ice')
+    binary_dir = join(dirname(dirname(__file__)), 'resources', 'surfice', 'Surf_Ice')
     assert os.path.exists(binary_dir), ('Surf Ice directory %s not found. Install using '
         '``python -m parcellate.bin.install_surf_ice``.' % binary_dir)
     binary_path = None
@@ -621,122 +736,131 @@ def plot_performance(
             continue
         df = pd.concat(dfs[parcellation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
-        _reference_atlas_names = df['atlas'].unique().tolist()
+        _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         if reference_atlas_names is None:
-            _reference_atlas_names = df['atlas'].unique().tolist()
+            _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         else:
             _reference_atlas_names = [x for x in reference_atlas_names if x in _reference_atlas_names]
 
         for atlas_name in atlas_names:
-            for reference_atlas_name in _reference_atlas_names:
-                # Similarity to reference
-                _df = df[(df.parcel == atlas_name)]
-                cols = ['atlas_score'] + ['jaccard%s' % x for x in SUFFIX2NAME]
-                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                colors = ['m']
+            # Similarity to reference
+            reference_atlas_name = re.sub('_sub\d+$', '', atlas_name)
+            _df = df[(df.parcel == atlas_name)]
+            cols = ['%s%s_score' % (REFERENCE_ATLAS_PREFIX, x) for x in _reference_atlas_names]
+            __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                       reference_atlas_name][cols].rename(_rename_performance, axis=1)
+            colors = ['m']
+            xlabel = None
+            ylabel = 'Similarity to Reference'
+            fig = _plot_performance(
+                __df,
+                colors=colors,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                divider=False
+            )
+            if not os.path.exists(plot_dir):
+                os.makedirs(plot_dir)
+            fig.savefig(join(plot_dir, '%s_%ssim.png' % (atlas_name, REFERENCE_ATLAS_PREFIX)), dpi=300)
+            if dump_data:
+                __df.to_csv(
+                    join(plot_dir, '%s_%ssim.csv' % (atlas_name, REFERENCE_ATLAS_PREFIX)),
+                    index=False
+                )
+
+            suffixes = ['']
+            if include_thresholds:
+                suffixes += list(SUFFIX2NAME.keys())
+
+            _baseline_atlas_names = baseline_atlas_names
+            if _baseline_atlas_names is None:
+                _baseline_atlas_names = ['%s%s' % (REFERENCE_ATLAS_PREFIX, reference_atlas_name)]
+
+            labels = [
+                reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
+                         baseline_atlas_name in _baseline_atlas_names
+            ] + ['FC']
+
+            # Similarity to evaluation
+            __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                       reference_atlas_name]
+            _evaluation_atlas_names = [x[:-6] for x in __df if x.endswith('_score') and \
+                                       x.startswith(EVALUATION_ATLAS_PREFIX) and \
+                                       (evaluation_atlas_names is None or x[:-6] in evaluation_atlas_names) and \
+                                       np.isfinite(__df[x].values).sum() > 0]
+            cols = ['%s_score' % x for x in _evaluation_atlas_names]
+            cols = [x for x in cols if x in _df]
+            __df = __df[cols].rename(_rename_performance, axis=1)
+            has_finite = np.isfinite(__df.values).sum() > 0
+            if has_finite:
+                dfb = []
+                for baseline_atlas_name in _baseline_atlas_names:
+                    _dfb = df[df.parcel == baseline_atlas_name]
+                    _dfb = _dfb[_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                                reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    dfb.append(_dfb)
+                ylabel = 'Similarity to evaluation atlas'
                 xlabel = None
-                ylabel = 'Similarity to Reference'
+                colors = ['c', 'm']
                 fig = _plot_performance(
-                    __df,
+                    *dfb, __df,
                     colors=colors,
+                    labels=labels,
                     xlabel=xlabel,
                     ylabel=ylabel,
-                    divider=True
+                    divider=False
                 )
                 if not os.path.exists(plot_dir):
                     os.makedirs(plot_dir)
-                fig.savefig(join(plot_dir, '%s_%s_sim.png' % (atlas_name, reference_atlas_name)), dpi=300)
+                fig.savefig(join(plot_dir, '%s_%ssim.png' % (
+                    atlas_name, EVALUATION_ATLAS_PREFIX)), dpi=300)
                 if dump_data:
-                    __df.to_csv(
-                        join(plot_dir, '%s_%s_sim.csv' % (atlas_name, reference_atlas_name)),
+                    csv = dfb + [__df]
+                    for i, _csv in enumerate(csv):
+                        _csv['label'] = labels[i]
+                    csv = pd.concat(csv, axis=0)
+                    csv.to_csv(
+                        join(plot_dir, '%s_%ssim.csv' % (atlas_name, EVALUATION_ATLAS_PREFIX)),
                         index=False
                     )
 
-                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
-                if evaluation_atlas_names is not None:
-                    _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
-
-                for evaluation_atlas_name in _evaluation_atlas_names:
-                    suffixes = ['']
-                    if include_thresholds:
-                        suffixes += list(SUFFIX2NAME.keys())
-
-                    _baseline_atlas_names = baseline_atlas_names
-                    if _baseline_atlas_names is None:
-                        _baseline_atlas_names = ['reference_atlas_%s' % reference_atlas_name]
-
-                    labels = [
-                        reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
-                                 baseline_atlas_name in _baseline_atlas_names
-                    ] + ['FC']
-
-                    # Similarity to evaluation
-                    cols = ['%s_score%s' % (evaluation_atlas_name, s) for s in suffixes]
-                    cols = [x for x in cols if x in _df]
-                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    dfb = []
-                    for baseline_atlas_name in _baseline_atlas_names:
-                        _dfb = df[df.parcel == baseline_atlas_name]
-                        _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                        dfb.append(_dfb)
-                    ylabel = 'Similarity to %s' % evaluation_atlas_name
-                    xlabel = None
-                    colors = ['c', 'm']
-                    fig = _plot_performance(
-                        *dfb, __df,
-                        colors=colors,
-                        labels=labels,
-                        xlabel=xlabel,
-                        ylabel=ylabel,
-                        divider=True
+            # Evaluation contrast size
+            cols = ['%s_contrast' % x for x in _evaluation_atlas_names]
+            cols = [x for x in cols if x in _df]
+            __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                       reference_atlas_name][cols].rename(_rename_performance, axis=1)
+            has_finite = np.isfinite(__df.values).sum() > 0
+            if has_finite:
+                dfb = []
+                for baseline_atlas_name in _baseline_atlas_names:
+                    _dfb = df[df.parcel == baseline_atlas_name]
+                    _dfb = _dfb[_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                                reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                    dfb.append(_dfb)
+                ylabel = 'Contrast'
+                xlabel = None
+                colors = ['c', 'm']
+                fig = _plot_performance(
+                    *dfb, __df,
+                    colors=colors,
+                    labels=labels,
+                    xlabel=xlabel,
+                    ylabel=ylabel,
+                    divider=False
+                )
+                if not os.path.exists(plot_dir):
+                    os.makedirs(plot_dir)
+                fig.savefig(join(plot_dir, '%s_%scontrast.png' % (
+                    atlas_name, EVALUATION_ATLAS_PREFIX)), dpi=300)
+                if dump_data:
+                    csv = dfb + [__df]
+                    for i, _csv in enumerate(csv):
+                        _csv['label'] = labels[i]
+                    csv = pd.concat(csv, axis=0)
+                    csv.to_csv(
+                        join(plot_dir, '%s_%scontrast.csv' % (atlas_name, EVALUATION_ATLAS_PREFIX)),
+                        index=False
                     )
-                    if not os.path.exists(plot_dir):
-                        os.makedirs(plot_dir)
-                    fig.savefig(join(plot_dir, '%s_%s_sim.png' % (
-                        atlas_name, evaluation_atlas_name)), dpi=300)
-                    if dump_data:
-                        csv = dfb + [__df]
-                        for i, _csv in enumerate(csv):
-                            _csv['label'] = labels[i]
-                        csv = pd.concat(csv, axis=0)
-                        csv.to_csv(
-                            join(plot_dir, '%s_%s_sim.csv' % (atlas_name, evaluation_atlas_name)),
-                            index=False
-                        )
-
-                    # Evaluation contrast size
-                    cols = ['%s_contrast%s' % (evaluation_atlas_name, s) for s in suffixes]
-                    cols = [x for x in cols if x in _df]
-                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    dfb = []
-                    for baseline_atlas_name in _baseline_atlas_names:
-                        _dfb = df[df.parcel == baseline_atlas_name]
-                        _dfb = _dfb[_dfb.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                        dfb.append(_dfb)
-                    ylabel = '%s Contrast' % evaluation_atlas_name
-                    xlabel = None
-                    colors = ['c', 'm']
-                    fig = _plot_performance(
-                        *dfb, __df,
-                        colors=colors,
-                        labels=labels,
-                        xlabel=xlabel,
-                        ylabel=ylabel,
-                        divider=True
-                    )
-                    if not os.path.exists(plot_dir):
-                        os.makedirs(plot_dir)
-                    fig.savefig(join(plot_dir, '%s_%s_contrast.png' % (
-                        atlas_name, evaluation_atlas_name)), dpi=300)
-                    if dump_data:
-                        csv = dfb + [__df]
-                        for i, _csv in enumerate(csv):
-                            _csv['label'] = labels[i]
-                        csv = pd.concat(csv, axis=0)
-                        csv.to_csv(
-                            join(plot_dir, '%s_%s_contrast.csv' % (atlas_name, evaluation_atlas_name)),
-                            index=False
-                        )
 
 
 def _plot_performance(
@@ -744,6 +868,7 @@ def _plot_performance(
         colors=None,
         labels=None,
         xlabel=None,
+        tick_labels=None,
         ylabel=None,
         divider=False,
         width=None,
@@ -752,8 +877,10 @@ def _plot_performance(
     plt.close('all')
     n_colors = len(dfs)
     bar_width = 0.8 / n_colors
-    n_ticks = None
-    tick_labels = None
+    if tick_labels is None:
+        n_ticks = None
+    else:
+        n_ticks = len(tick_labels)
     x = None
     xlim = None
     spacer = 1
@@ -762,7 +889,8 @@ def _plot_performance(
     for i, df in enumerate(dfs):
         if n_ticks is None:
             n_ticks = len(df.columns)
-        tick_labels = df.columns.tolist()
+        if tick_labels is None:
+            tick_labels = df.columns.tolist()
         if n_ticks == 1:
             divider = False
         y = df.mean(axis=0)
@@ -791,27 +919,13 @@ def _plot_performance(
             plt.xlabel(xlabel)
         if ylabel:
             plt.ylabel(ylabel)
-    if len(x) > 1:
-        plt.xticks(
-            x,
-            tick_labels,
-            rotation=45,
-            ha='right',
-            rotation_mode='anchor'
-        )
-        # Add "Continuous" label
-        text_x = x[0]
-        _ymin, _ymax = plt.gca().get_ylim()
-        yrange = _ymax - _ymin
-        yoffset = 0. * yrange
-        text_y = _ymax + yoffset
-        plt.text(text_x, text_y, 'Continuous', horizontalalignment='center', verticalalignment='bottom')
-
-        # Add "Binary" label
-        text_x = x[1:].mean()
-        plt.text(text_x, text_y, 'Binary', horizontalalignment='center', verticalalignment='bottom')
-    else:
-        plt.xticks([], [])
+    plt.xticks(
+        x,
+        tick_labels,
+        rotation=45,
+        ha='right',
+        rotation_mode='anchor'
+    )
     plt.xlim(xlim)
     if labels is not None:
         legend_kwargs = dict(
@@ -840,11 +954,10 @@ def _rename_performance(x):
     for suffix in SUFFIX2NAME:
         if x.endswith(suffix):
             return SUFFIX2NAME[suffix]
-    if x.endswith('_score'):
-        return 'p'
-    if x.endswith('_contrast'):
-        return x[:-9]
-    return x
+    return x.replace(REFERENCE_ATLAS_PREFIX, '')\
+            .replace(EVALUATION_ATLAS_PREFIX, '')\
+            .replace('_score', '')\
+            .replace('_contrast', '')
 
 
 def plot_performance_by_data_size(
@@ -880,7 +993,7 @@ def plot_performance_by_data_size(
                 parcellate_cfg = get_cfg(parcellate_cfg_path)
                 sample_id = get_action_attr('sample', parcellate_cfg['action_sequence'], 'id')
                 tr = get_action_attr('sample', parcellate_cfg['action_sequence'], 'kwargs').get('tr', 2)
-                n_trs = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id)).n_trs.unique().tolist()
+                n_trs = pd.read_csv(get_path(output_dir, 'metadata', 'sample', sample_id)).n_trs.unique().tolist()
                 assert len(n_trs) == 1, 'Should have only one value for n_trs, got %d.' % len(n_trs)
                 n_trs = n_trs[0]
                 minutes = (n_trs * tr) / 60
@@ -895,20 +1008,53 @@ def plot_performance_by_data_size(
             continue
         df = pd.concat(dfs[parcellation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
-        _reference_atlas_names = df['atlas'].unique().tolist()
+        _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         if reference_atlas_names is None:
-            _reference_atlas_names = df['atlas'].unique().tolist()
+            _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         else:
             _reference_atlas_names = [x for x in reference_atlas_names if x in _reference_atlas_names]
 
         for atlas_name in atlas_names:
-            for reference_atlas_name in _reference_atlas_names:
-                # Similarity to reference
-                _df = df[(df.parcel == atlas_name)]
-                cols = ['atlas_score', 'minutes']
-                __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
+            reference_atlas_name = re.sub('_sub\d+$', '', atlas_name)
+            # Similarity to reference
+            _df = df[(df.parcel == atlas_name)]
+            cols = ['%sscore' % REFERENCE_ATLAS_PREFIX, 'minutes']
+            __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                       reference_atlas_name][cols].rename(_rename_performance, axis=1)
+            xlabel = 'Minutes of fMRI data'
+            ylabel = 'Similarity to Reference'
+            fig = _plot_performance_by_data_size(
+                __df,
+                xlabel=xlabel,
+                ylabel=ylabel
+            )
+            if not os.path.exists(plot_dir):
+                os.makedirs(plot_dir)
+            fig.savefig(
+                join(plot_dir, '%s_%ssim_by_data_size.png' % (atlas_name, REFERENCE_ATLAS_PREFIX)),
+                dpi=300
+            )
+            if dump_data:
+                __df.to_csv(
+                    join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, REFERENCE_ATLAS_PREFIX)),
+                    index=False
+                )
+
+            _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and \
+                                       x.startswith(EVALUATION_ATLAS_PREFIX)]
+            if evaluation_atlas_names is not None:
+                _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
+
+            for evaluation_atlas_name in _evaluation_atlas_names:
+                # Similarity to evaluation
+                cols = ['%s_score' % evaluation_atlas_name, 'minutes']
+                cols = [x for x in cols if x in _df]
+                __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                           reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                if len(__df) == 0 or np.any(np.isfinite(__df.values).sum(axis=0) == 0):
+                    continue
                 xlabel = 'Minutes of fMRI data'
-                ylabel = 'Similarity to Reference'
+                ylabel = 'Similarity to %s' % evaluation_atlas_name
                 fig = _plot_performance_by_data_size(
                     __df,
                     xlabel=xlabel,
@@ -916,62 +1062,38 @@ def plot_performance_by_data_size(
                 )
                 if not os.path.exists(plot_dir):
                     os.makedirs(plot_dir)
-                fig.savefig(join(plot_dir, '%s_%s_sim_by_data_size.png' % (atlas_name, reference_atlas_name)), dpi=300)
+                fig.savefig(join(plot_dir, '%s_%s_sim_by_data_size.png' % (
+                    atlas_name, evaluation_atlas_name)), dpi=300)
                 if dump_data:
-                    __df.to_csv(
-                        join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, reference_atlas_name)),
+                    csv = __df
+                    csv.to_csv(
+                        join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
                         index=False
                     )
 
-                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
-                if evaluation_atlas_names is not None:
-                    _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
-
-                for evaluation_atlas_name in _evaluation_atlas_names:
-                    # Similarity to evaluation
-                    cols = ['%s_score' % evaluation_atlas_name, 'minutes']
-                    cols = [x for x in cols if x in _df]
-                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    xlabel = 'Minutes of fMRI data'
-                    ylabel = 'Similarity to %s' % evaluation_atlas_name
-                    fig = _plot_performance_by_data_size(
-                        __df,
-                        xlabel=xlabel,
-                        ylabel=ylabel
+                # Evaluation contrast size
+                cols = ['%s_contrast' % evaluation_atlas_name, 'minutes']
+                cols = [x for x in cols if x in _df]
+                __df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                           reference_atlas_name][cols].rename(_rename_performance, axis=1)
+                xlabel = 'Minutes of fMRI data'
+                ylabel = '%s Contrast' % evaluation_atlas_name
+                fig = _plot_performance_by_data_size(
+                    __df,
+                    xlabel=xlabel,
+                    ylabel=ylabel
+                )
+                if not os.path.exists(plot_dir):
+                    os.makedirs(plot_dir)
+                fig.savefig(join(plot_dir, '%s_%s_contrast_by_data_size.png' % (
+                    atlas_name, evaluation_atlas_name)), dpi=300)
+                if dump_data:
+                    csv = __df
+                    csv = pd.concat(csv, axis=0)
+                    csv.to_csv(
+                        join(plot_dir, '%s_%s_contrast_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
+                        index=False
                     )
-                    if not os.path.exists(plot_dir):
-                        os.makedirs(plot_dir)
-                    fig.savefig(join(plot_dir, '%s_%s_sim_by_data_size.png' % (
-                        atlas_name, evaluation_atlas_name)), dpi=300)
-                    if dump_data:
-                        csv = __df
-                        csv.to_csv(
-                            join(plot_dir, '%s_%s_sim_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
-                            index=False
-                        )
-
-                    # Evaluation contrast size
-                    cols = ['%s_contrast' % evaluation_atlas_name, 'minutes']
-                    cols = [x for x in cols if x in _df]
-                    __df = _df[_df.atlas == reference_atlas_name][cols].rename(_rename_performance, axis=1)
-                    xlabel = 'Minutes of fMRI data'
-                    ylabel = '%s Contrast' % evaluation_atlas_name
-                    fig = _plot_performance_by_data_size(
-                        __df,
-                        xlabel=xlabel,
-                        ylabel=ylabel
-                    )
-                    if not os.path.exists(plot_dir):
-                        os.makedirs(plot_dir)
-                    fig.savefig(join(plot_dir, '%s_%s_contrast_by_data_size.png' % (
-                        atlas_name, evaluation_atlas_name)), dpi=300)
-                    if dump_data:
-                        csv = __df
-                        csv = pd.concat(csv, axis=0)
-                        csv.to_csv(
-                            join(plot_dir, '%s_%s_contrast_by_data_size.csv' % (atlas_name, evaluation_atlas_name)),
-                            index=False
-                        )
 
 
 def _plot_performance_by_data_size(
@@ -1095,24 +1217,67 @@ def plot_grid(
             continue
         df = pd.concat(dfs[aggregation_id], axis=0)
         atlas_names = df[df.parcel_type != 'baseline'].parcel.unique().tolist()
-        _reference_atlas_names = df['atlas'].unique().tolist()
+        _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         if reference_atlas_names is None:
-            _reference_atlas_names = df['atlas'].unique().tolist()
+            _reference_atlas_names = df['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
         else:
             _reference_atlas_names = [x for x in reference_atlas_names if x in _reference_atlas_names]
 
         for atlas_name in atlas_names:
-            for reference_atlas_name in _reference_atlas_names:
-                labels = ['FC', reference_atlas_name_to_label.get(reference_atlas_name, reference_atlas_name)]
+            reference_atlas_name = re.sub('_sub\d+$', '', atlas_name)
+            labels = ['FC', reference_atlas_name_to_label.get(reference_atlas_name, reference_atlas_name)]
 
-                for dimension in _dimensions:
-                    _dimensions_other = [x for x in _dimensions if x != dimension]
-                    # Similarity to reference
-                    if dimension not in df:
-                        df[dimension] = df.grid_id.apply(_get_param_value, args=(dimension,))
-                    perf_col = 'atlas_score'
-                    _df = df[(df.parcel == atlas_name)]
-                    _df = _df[_df.atlas == reference_atlas_name]
+            for dimension in _dimensions:
+                _dimensions_other = [x for x in _dimensions if x != dimension]
+                for _dimension in [dimension] + _dimensions_other:
+                    if _dimension not in df:
+                        df[_dimension] = df.grid_id.apply(_get_param_value, args=(_dimension,))
+                # Similarity to reference
+                perf_col = '%sscore' % REFERENCE_ATLAS_PREFIX
+                _df = df[(df.parcel == atlas_name)]
+                _df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                          reference_atlas_name]
+                selected = _df[_df.selected][[dimension, perf_col]]
+                selected = selected.set_index(dimension)[perf_col]
+                __df = _df.pivot(
+                    columns=[dimension] + _dimensions_other,
+                    index='cfg_path',
+                    values=perf_col
+                )
+                idx_names = [_rename_grid(x) for x in __df.columns.names]
+                __df.columns = __df.columns.set_names(idx_names)
+
+                fig = _plot_grid(
+                    __df,
+                    _rename_grid(dimension),
+                    labels=labels,
+                    selected=selected,
+                    colors=['m'],
+                    ylabel=_rename_grid(perf_col)
+                )
+
+                if not os.path.exists(plot_dir):
+                    os.makedirs(plot_dir)
+                fig.savefig(
+                    join(plot_dir, '%s_%ssim_by_%s_grid.png' % (atlas_name, REFERENCE_ATLAS_PREFIX, dimension)),
+                    dpi=300
+                )
+                if dump_data:
+                    __df.to_csv(
+                        join(plot_dir, '%s_%ssim_by_%s_grid.csv' % (atlas_name, REFERENCE_ATLAS_PREFIX, dimension)),
+                        index=False
+                    )
+
+                # Similarity to evaluation
+                _dfr = df[df.parcel == '%s%s' % (REFERENCE_ATLAS_PREFIX, reference_atlas_name)]
+                _dfr = _dfr[_dfr['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                            reference_atlas_name]
+                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and \
+                                           x.startswith(EVALUATION_ATLAS_PREFIX)]
+                if evaluation_atlas_names is not None:
+                    _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
+                for evaluation_atlas_name in _evaluation_atlas_names:
+                    perf_col = '%s_score' % evaluation_atlas_name
                     selected = _df[_df.selected][[dimension, perf_col]]
                     selected = selected.set_index(dimension)[perf_col]
                     __df = _df.pivot(
@@ -1120,141 +1285,117 @@ def plot_grid(
                         index='cfg_path',
                         values=perf_col
                     )
-                    __df.columns.name = _rename_grid(__df.columns.name)
+                    idx_names = [_rename_grid(x) for x in __df.columns.names]
+                    __df.columns = __df.columns.set_names(idx_names)
+                    if len(__df) == 0 or np.any(np.isfinite(__df.values).sum(axis=0) == 0):
+                        continue
+
+                    _baseline_atlas_names = baseline_atlas_names
+                    if _baseline_atlas_names is None:
+                        _baseline_atlas_names = ['%s%s' % (REFERENCE_ATLAS_PREFIX, reference_atlas_name)]
+
+                    labels = [
+                                 reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
+                                 baseline_atlas_name in _baseline_atlas_names
+                             ] + ['FC']
+
+                    dfb = []
+                    for baseline_atlas_name in _baseline_atlas_names:
+                        _dfb = df[df.parcel == baseline_atlas_name]
+                        _dfb = _dfb[_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                                    reference_atlas_name]
+                        _dfb = _dfb.pivot(
+                            columns=[dimension] + _dimensions_other,
+                            index='cfg_path',
+                            values=perf_col
+                        )
+                        idx_names = [_rename_grid(x) for x in _dfb.columns.names]
+                        _dfb.columns = _dfb.columns.set_names(idx_names)
+                        dfb.append(_dfb)
 
                     fig = _plot_grid(
                         __df,
+                        _rename_grid(dimension),
+                        dfb=dfb,
                         labels=labels,
                         selected=selected,
-                        colors=['m'],
+                        colors=['gray', 'm'],
                         ylabel=_rename_grid(perf_col)
                     )
 
                     if not os.path.exists(plot_dir):
                         os.makedirs(plot_dir)
                     fig.savefig(
-                        join(plot_dir, '%s_%s_sim_grid.png' % (atlas_name, reference_atlas_name)),
+                        join(plot_dir, '%s_%s_by_%s_sim_grid.png' % (atlas_name, evaluation_atlas_name, dimension)),
                         dpi=300
                     )
                     if dump_data:
-                        __df.to_csv(
-                            join(plot_dir, '%s_%s_sim_grid.csv' % (atlas_name, reference_atlas_name)),
+                        csv = dfb + [__df]
+                        for i, _csv in enumerate(csv):
+                            _csv['label'] = labels[i]
+                        csv = pd.concat(csv, axis=0)
+                        csv.to_csv(
+                            join(plot_dir, '%s_%s_by_%s_sim_grid.csv' % (atlas_name, evaluation_atlas_name, dimension)),
                             index=False
                         )
 
-                    # Similarity to evaluation
-                    _dfr = df[df.parcel == 'reference_atlas_%s' % reference_atlas_name]
-                    _dfr = _dfr[_dfr.atlas == reference_atlas_name]
-                    _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and not x.startswith('atlas')]
-                    if evaluation_atlas_names is not None:
-                        _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
-                    for evaluation_atlas_name in _evaluation_atlas_names:
-                        perf_col = '%s_score' % evaluation_atlas_name
-                        selected = _df[_df.selected][[dimension, perf_col]]
-                        selected = selected.set_index(dimension)[perf_col]
-                        __df = _df.pivot(
+                    perf_col = '%s_contrast' % evaluation_atlas_name
+                    selected = _df[_df.selected][[dimension, perf_col]]
+                    selected = selected.set_index(dimension)[perf_col]
+                    __df = _df.pivot(
+                        columns=[dimension] + _dimensions_other,
+                        index='cfg_path',
+                        values=perf_col
+                    )
+                    idx_names = [_rename_grid(x) for x in __df.columns.names]
+                    __df.columns = __df.columns.set_names(idx_names)
+
+                    dfb = []
+                    for baseline_atlas_name in _baseline_atlas_names:
+                        _dfb = df[df.parcel == baseline_atlas_name]
+                        _dfb = _dfb[_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                                    reference_atlas_name]
+                        _dfb = _dfb.pivot(
                             columns=[dimension] + _dimensions_other,
                             index='cfg_path',
                             values=perf_col
                         )
-                        __df.columns.name = _rename_grid(__df.columns.name)
+                        idx_names = [_rename_grid(x) for x in _dfb.columns.names]
+                        _dfb.columns = _dfb.columns.set_names(idx_names)
+                        dfb.append(_dfb)
 
-                        _baseline_atlas_names = baseline_atlas_names
-                        if _baseline_atlas_names is None:
-                            _baseline_atlas_names = ['reference_atlas_%s' % reference_atlas_name]
+                    fig = _plot_grid(
+                        __df,
+                        _rename_grid(dimension),
+                        dfb=dfb,
+                        labels=labels,
+                        selected=selected,
+                        colors=['gray', 'm'],
+                        ylabel=_rename_grid(perf_col)
+                    )
 
-                        labels = [
-                                     reference_atlas_name_to_label.get(baseline_atlas_name, baseline_atlas_name) for
-                                     baseline_atlas_name in _baseline_atlas_names
-                                 ] + ['FC']
-
-                        dfb = []
-                        for baseline_atlas_name in _baseline_atlas_names:
-                            _dfb = df[df.parcel == baseline_atlas_name]
-                            _dfb = _dfb[_dfb.atlas == reference_atlas_name]
-                            _dfb = _dfb.pivot(
-                                columns=[dimension] + _dimensions_other,
-                                index='cfg_path',
-                                values=perf_col
-                            )
-                            _dfb.columns.name = _rename_grid(_dfb.columns.name)
-                            dfb.append(_dfb)
-
-                        fig = _plot_grid(
-                            __df,
-                            dfb=dfb,
-                            labels=labels,
-                            selected=selected,
-                            colors=['gray', 'm'],
-                            ylabel=_rename_grid(perf_col)
+                    if not os.path.exists(plot_dir):
+                        os.makedirs(plot_dir)
+                    fig.savefig(
+                        join(plot_dir, '%s_%s_by_%s_contrast_grid.png' %
+                             (atlas_name, evaluation_atlas_name, dimension)),
+                        dpi=300
+                    )
+                    if dump_data:
+                        csv = dfb + [__df]
+                        for i, _csv in enumerate(csv):
+                            _csv['label'] = labels[i]
+                        csv = pd.concat(csv, axis=0)
+                        csv.to_csv(
+                            join(plot_dir, '%s_%s_by_%s_contrast_grid.csv' %
+                                 (atlas_name, evaluation_atlas_name, dimension)),
+                            index=False
                         )
-
-                        if not os.path.exists(plot_dir):
-                            os.makedirs(plot_dir)
-                        fig.savefig(
-                            join(plot_dir, '%s_%s_sim_grid.png' % (atlas_name, evaluation_atlas_name)),
-                            dpi=300
-                        )
-                        if dump_data:
-                            csv = dfb + [__df]
-                            for i, _csv in enumerate(csv):
-                                _csv['label'] = labels[i]
-                            csv = pd.concat(csv, axis=0)
-                            csv.to_csv(
-                                join(plot_dir, '%s_%s_sim_grid.csv' % (atlas_name, evaluation_atlas_name)),
-                                index=False
-                            )
-
-                        perf_col = '%s_contrast' % evaluation_atlas_name
-                        selected = _df[_df.selected][[dimension, perf_col]]
-                        selected = selected.set_index(dimension)[perf_col]
-                        __df = _df.pivot(
-                            columns=[dimension] + _dimensions_other,
-                            index='cfg_path',
-                            values=perf_col
-                        )
-                        __df.columns.name = _rename_grid(__df.columns.name)
-
-                        dfb = []
-                        for baseline_atlas_name in _baseline_atlas_names:
-                            _dfb = df[df.parcel == baseline_atlas_name]
-                            _dfb = _dfb[_dfb.atlas == reference_atlas_name]
-                            _dfb = _dfb.pivot(
-                                columns=[dimension] + _dimensions_other,
-                                index='cfg_path',
-                                values=perf_col
-                            )
-                            _dfb.columns.name = _rename_grid(_dfb.columns.name)
-                            dfb.append(_dfb)
-
-                        fig = _plot_grid(
-                            __df,
-                            dfb=dfb,
-                            labels=labels,
-                            selected=selected,
-                            colors=['gray', 'm'],
-                            ylabel=_rename_grid(perf_col)
-                        )
-
-                        if not os.path.exists(plot_dir):
-                            os.makedirs(plot_dir)
-                        fig.savefig(
-                            join(plot_dir, '%s_%s_contrast_grid.png' % (atlas_name, evaluation_atlas_name)),
-                            dpi=300
-                        )
-                        if dump_data:
-                            csv = dfb + [__df]
-                            for i, _csv in enumerate(csv):
-                                _csv['label'] = labels[i]
-                            csv = pd.concat(csv, axis=0)
-                            csv.to_csv(
-                                join(plot_dir, '%s_%s_contrast_grid.csv' % (atlas_name, evaluation_atlas_name)),
-                                index=False
-                            )
 
 
 def _plot_grid(
         df,
+        dimension,
         dfb=None,
         labels=None,
         selected=None,
@@ -1264,7 +1405,10 @@ def _plot_grid(
         height=3,
 ):
     plt.close('all')
-    xlabel = df.columns.name
+    xlabel = dimension
+    ticks = None
+    tick_labels = None
+    tick_map = {}
 
     dfs = []
     if dfb is not None:
@@ -1279,6 +1423,18 @@ def _plot_grid(
     for i, _df in enumerate(dfs):
         label = labels[i]
         x = _df.columns
+        if len(x.names) > 1:
+            stack_levels = [z for z in _df.columns.names if z != dimension]
+            _df = _df.stack(level=stack_levels, future_stack=True)
+            x = _df.columns.get_level_values(level=dimension)
+        else:
+            assert x.name == dimension, 'Mismatch between dimension (%s) and columns index name (%s)' % \
+                                        (dimension, x.name)
+        if not pd.api.types.is_numeric_dtype(x.dtype):
+            ticks = np.arange(len(x))
+            tick_labels = x.values
+            tick_map = {x: y for x, y in zip(tick_labels, ticks)}
+            x = ticks
         y = _df.mean(axis=0)
         yerr = _df.sem(axis=0)
         color = colors[i]
@@ -1293,6 +1449,8 @@ def _plot_grid(
 
     if selected is not None and len(selected):
         index = pd.Series(selected.index)
+        if ticks is not None:
+            index = index.map(tick_map)
         x = index.mean()
         xerr = index.sem()
         if not np.isfinite(xerr):
@@ -1301,11 +1459,20 @@ def _plot_grid(
         yerr = selected.sem()
         if not np.isfinite(yerr):
             yerr = None
-        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='c,', linewidth=1, markersize=3, zorder=i+1)
+        plt.errorbar(x, y, xerr=xerr, yerr=yerr, fmt='c.', linewidth=1, markersize=3, zorder=i+1)
 
     plt.xlabel(xlabel)
     if ylabel:
         plt.ylabel(ylabel)
+
+    if ticks is not None:
+        plt.xticks(
+            ticks,
+            tick_labels,
+            rotation=45,
+            ha='right',
+            rotation_mode='anchor'
+        )
 
     if labels is not None and len(labels) > 1:
         legend_kwargs = dict(
@@ -1334,7 +1501,7 @@ def _get_param_value(s, grid_id):
         if val_i == val_f:
             return val_i
         return val_f
-    except TypeError:
+    except ValueError:
         pass
 
     return val
@@ -1344,10 +1511,12 @@ def _rename_grid(x):
     for suffix in SUFFIX2NAME:
         if x.endswith(suffix):
             return SUFFIX2NAME[suffix]
-    if x == 'atlas_score':
-        return 'Similarity to Reference'
     if x == 'n_networks':
         return 'N Networks'
+    if x == '%sscore' % REFERENCE_ATLAS_PREFIX:
+        return 'Similarity to Reference'
+    x = x.replace(REFERENCE_ATLAS_PREFIX, '')\
+         .replace(EVALUATION_ATLAS_PREFIX, '')
     if x.endswith('_score'):
         return 'Similarity to %s' % x[:-6]
     if x.endswith('_contrast'):
@@ -1395,6 +1564,10 @@ if __name__ == '__main__':
     argparser.add_argument('-d', '--dimensions', nargs='+', default=None, help=textwrap.dedent('''\
         Name(s) of grid-searched dimension(s) to plot. If None, use all available dimensions.'''
     ))
+    argparser.add_argument('-i', '--subnetwork_id', type=int, default=1, help=textwrap.dedent('''\
+        Index of subnetwork_id to use where relevant for atlas construction (e.g., comparison to reference).
+        Value 0 plots the aggregate across subnetworks.
+    '''))
     argparser.add_argument('-T', '--include_thresholds', action='store_true', help=textwrap.dedent('''\
         Include performance when binarizing the atlas at different probability thresholds.'''
     ))
@@ -1415,6 +1588,9 @@ if __name__ == '__main__':
     evaluation_atlas_names = args.evaluation_atlas_names
     baseline_atlas_names = args.baseline_atlas_names
     dimensions = args.dimensions
+    subnetwork_id = args.subnetwork_id
+    if not subnetwork_id:
+        subnetwork_id = None
     include_thresholds = args.include_thresholds
     dump_data = args.dump_data
     output_dir = args.output_dir
@@ -1422,9 +1598,10 @@ if __name__ == '__main__':
     if plot_type & {'atlas', 'all'}:
         plot_atlases(
             cfg_paths,
-            parcellation_ids,
-            reference_atlas_names,
-            evaluation_atlas_names
+            parcellation_ids=parcellation_ids,
+            subnetwork_id=subnetwork_id,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names
         )
     if plot_type & {'group_atlas', 'all'}:
         plot_group_atlases(

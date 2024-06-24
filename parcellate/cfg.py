@@ -80,21 +80,34 @@ def get_action_sequence(
     if action_type == 'align':
         action_id = cfg[action_type][action_id].get('sample_id', None)
         action_type = 'sample'
+    elif action_type == 'label':
+        if 'alignment_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('alignment_id', None)
+            action_type = 'align'
+        elif 'sample_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('sample_id', None)
+            action_type = 'sample'
+        elif 'align' in cfg:
+            action_type = 'align'
+            action_id = None
+        else:
+            action_type = 'sample'
+            action_id = None
     elif action_type == 'evaluate':
-        action_id = cfg[action_type][action_id].get('alignment_id', None)
-        action_type = 'align'
+        action_id = cfg[action_type][action_id].get('labeling_id', None)
+        action_type = 'label'
     elif action_type == 'aggregate':
         if 'evaluation_id' in cfg[action_type][action_id]:
             action_id = cfg[action_type][action_id].get('evaluation_id', None)
             action_type = 'evaluate'
-        elif 'alignment_id' in cfg[action_type][action_id]:
-            action_id = cfg[action_type][action_id].get('alignment_id', None)
-            action_type = 'align'
+        if 'labeling_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('labeling_id', None)
+            action_type = 'label'
         elif 'evaluate' in cfg:
             action_type = 'evaluate'
             action_id = None
         else:
-            action_type = 'align'
+            action_type = 'label'
             action_id = None
     elif action_type == 'parcellate':
         if ('aggregation_id' in cfg[action_type][action_id] and
@@ -104,9 +117,9 @@ def get_action_sequence(
         elif 'evaluation_id' in cfg[action_type][action_id]:
             action_id = cfg[action_type][action_id].get('evaluation_id', None)
             action_type = 'evaluate'
-        elif 'alignment_id' in cfg[action_type][action_id]:
-            action_id = cfg[action_type][action_id].get('alignment_id', None)
-            action_type = 'align'
+        elif 'labeling_id' in cfg[action_type][action_id]:
+            action_id = cfg[action_type][action_id].get('labeling_id', None)
+            action_type = 'label'
         elif ('aggregate' in cfg and 'grid' in cfg and len(cfg['grid']) and
                 cfg[action_type][action_id].get('aggregation_id', 'not found') is not None):
             action_type = 'aggregate'
@@ -115,7 +128,7 @@ def get_action_sequence(
             action_type = 'evaluate'
             action_id = None
         else:
-            action_type = 'align'
+            action_type = 'label'
             action_id = None
     else:
         raise ValueError('Unrecognized action_type %s' % action_type)

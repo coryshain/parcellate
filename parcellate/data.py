@@ -1,4 +1,3 @@
-import sys
 import os
 import textwrap
 
@@ -6,15 +5,35 @@ try:
     import importlib.resources as pkg_resources
 except ImportError:
     import importlib_resources as pkg_resources
-import resources
+from parcellate import resources
 import numpy as np
-from scipy import stats, signal, optimize
-from sklearn.preprocessing import normalize as sk_normalize
-from nilearn import image, masking, plotting
+from scipy import signal, optimize
+from nilearn import image, masking
 
-from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, join, get_suffix, stderr
+from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, ALL_REFERENCE, join, get_suffix, stderr
 
 NII_CACHE = {}  # Map from paths to NII objects
+ATLAS_NAME_TO_FILE = dict(
+    language='LanA_n806.nii',
+    lana='LanA_n806.nii',
+    executive='fROI20_HE197.nii',
+    md='fROI20_HE197.nii',
+    aud='DU15_AUD.nii.gz',
+    cg_op='DU15_CG_OP.nii.gz',
+    datn_a='DU15_dATN_A.nii.gz',
+    datn_b='DU15_dATN_B.nii.gz',
+    dn_a='DU15_DN_A.nii.gz',
+    dn_b='DU15_DN_B.nii.gz',
+    fpn_a='DU15_FPN_A.nii.gz',
+    fpn_b='DU15_FPN_B.nii.gz',
+    lang='DU15_LANG.nii.gz',
+    pm_ppr='DU15_PM_PPr.nii.gz',
+    sal_pmn='DU15_SAL_PMN.nii.gz',
+    smot_a='DU15_SMOT_A.nii.gz',
+    smot_b='DU15_SMOT_B.nii.gz',
+    vis_c='DU15_VIS_C.nii.gz',
+    vis_p='DU15_VIS_P.nii.gz',
+)
 
 
 def standardize_array(arr, axis=-1):
@@ -53,9 +72,11 @@ def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE):
 
 
 def get_atlas(atlas, fwhm=None):
-    if isinstance(atlas, str) and atlas.lower() == 'language':
-        name = 'language'
-        filename = 'LanA_n806.nii'
+    if isinstance(atlas, str):
+        name = atlas
+        filename = ATLAS_NAME_TO_FILE.get(name.lower(), None)
+        if filename is None:
+            raise ValueError('Unrecognized atlas name: %s' % name)
         with pkg_resources.as_file(pkg_resources.files(resources).joinpath(filename)) as path:
             val = get_nii(path, fwhm=fwhm)
     elif isinstance(atlas, dict):
@@ -93,58 +114,71 @@ def get_shape_from_parcellations(parcellations):
 
     return n_samples, v, n_networks
 
-def align_samples(samples, ref_ix, scoring_method='corr', w=None):
+
+def align_samples(
+        samples,
+        scoring_method='corr',
+        w=None,
+        n_alignments=None,
+        shuffle=False,
+        indent=None
+):
     scoring_method = scoring_method.lower()
     n_samples, v, n_networks = get_shape_from_parcellations(samples)
-    parcellation = np.zeros((n_networks, v))
-    reference = samples[ref_ix]
-    if len(samples.shape) == 2:
-        reference = (reference[None, ...] == np.arange(n_networks)[..., None]).astype(float)
-    else:
-        reference = reference.T.astype(float)
-    if scoring_method == 'corr':
-        _reference = standardize_array(reference)
-    else:
-        _reference = reference
+    parcellation = (samples[0][None, ...] == np.arange(n_networks)[..., None])
 
     # Align subsequent samples
-    for si in range(n_samples):
-        if w is None or w[si]:
-            if len(samples.shape) == 2:
-                s = (samples[si][None, ...] == np.arange(n_networks)[..., None]).astype(float)
-            else:
-                s = samples[si].T.astype(float)
-            if si != ref_ix:
-                if scoring_method == 'corr':
-                    s = standardize_array(s)
-                    scores = np.dot(
-                        s,
-                        _reference.T
-                    ) / v
-                elif scoring_method == 'avg':
-                    num = np.dot(
-                        s,
-                        _reference.T
-                    )
-                    denom = s.sum(axis=-1, keepdims=True)
-                    denom[np.where(denom == 0)] = 1
-                    scores = num / denom
-                else:
-                    raise ValueError('Unrecognized scoring method %s.' % scoring_method)
+    if shuffle:
+        s_ix = np.random.permutation(n_samples)
+        samples = samples[s_ix]
+    n = n_alignments
+    if n is None:
+        n = n_samples
+    i = 0
+    for i_cum in range(n):
+        if indent is not None:
+            stderr('\r%sAlignment %d/%d' % (' ' * (indent * 2), i_cum + 1, n))
+        si = i
+        if len(samples.shape) == 2:
+            s = (samples[si][None, ...] == np.arange(n_networks)[..., None])
+        else:
+            s = samples[si].T
+        s = s.astype(float)
+        if scoring_method == 'corr':
+            _s = standardize_array(s)
+            reference = standardize_array(parcellation)
+            scores = np.dot(
+                reference,
+                _s.T,
+            ) / v
+        elif scoring_method == 'avg':
+            reference = minmax_normalize_array(parcellation)
+            num = np.dot(
+                reference,
+                s.T
+            )
+            denom = s.sum(axis=-1, keepdims=True)
+            denom[np.where(denom == 0)] = 1
+            scores = num / denom
+        else:
+            raise ValueError('Unrecognized scoring method %s.' % scoring_method)
 
-                ix_l, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
-                # Make sure networks are sorted in the same order as current parcellation
-                sort_ix = np.argsort(ix_l)
-                ix_l, ix_r = ix_l[sort_ix], ix_r[sort_ix]
-                s = s[ix_r]
-                if w is not None:
-                    s = s * w[si]
-            parcellation = parcellation + s
-    if w is not None:
-        denom = w.sum()
-    else:
-        denom = n_samples
-    parcellation = parcellation / denom
+        _, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
+        s = s[ix_r]
+        if w is not None:
+            _w = w[si]
+        else:
+            _w = 1
+        parcellation = (parcellation * i_cum + s) / (i_cum + _w)
+        i_cum += _w
+        i += 1
+        if i >= n_samples:
+            i = 0
+            if shuffle:
+                s_ix = np.random.permutation(n_samples)
+                samples = samples[s_ix]
+
+    stderr('\n')
 
     return parcellation
 
@@ -165,21 +199,22 @@ def purge_bad_nii(path, compressed=True):
                     stderr(textwrap.indent(str(e), '    '))
                     os.remove(_path)
 
+def resample_to(nii, template):
+    return image.resample_to_img(nii, template)
+
 
 class Data:
-    def __new__(cls, *args, **kwargs):
-        if cls is Data:
-            raise TypeError(f"{cls.__name__} is an abstract class that cannot be instantiated")
-        return super().__new__(cls)
-
     def __init__(
             self,
             nii_ref_path,
             fwhm=None,
+            resampling_target_nii=None
     ):
         self.nii_ref_path = nii_ref_path
         self.fwhm = fwhm
         self.nii_ref = get_nii(self.nii_ref_path, fwhm=self.fwhm)
+        if resampling_target_nii is not None:
+            self.nii_ref = resample_to(self.nii_ref, resampling_target_nii)
         self.nii_ref_shape = self.nii_ref.shape[:3]
         self.mask = None
         self.set_mask_from_nii(None)
@@ -244,10 +279,10 @@ class InputData(Data):
             self,
             functional_paths,
             fwhm=None,
+            resampling_target_nii=None,
             mask_path=None,
+            detrend=False,
             standardize=True,
-            normalize=False,
-            detrend = False,
             tr=2,
             low_pass=None,
             high_pass=None,
@@ -259,13 +294,17 @@ class InputData(Data):
             functional_paths = list(functional_paths)
         assert len(functional_paths), 'At least one functional run must be provided for parcellation.'
         nii_ref_path = functional_paths[0]
-        super().__init__(nii_ref_path, fwhm=fwhm)
+        if isinstance(resampling_target_nii, str):
+            resampling_target_nii = image.smooth_img(resampling_target_nii, None)
+        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii)
 
         # Load all data and aggregate the mask
         _functionals = []
         _mask = None
         for functional_path in functional_paths:
             functional = get_nii(functional_path, fwhm=self.fwhm)
+            if resampling_target_nii is not None:
+                functional = resample_to(functional, resampling_target_nii)
             data = image.get_data(functional)
             __mask = (data.std(axis=-1) > 0) & \
                      np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
@@ -281,7 +320,6 @@ class InputData(Data):
 
         self.set_mask_from_nii(mask_path)
         self.mask = self.mask & _mask
-        mask = self.mask
 
         # Set key variables now so they can be used in instance methods during initialization
         self.tr = tr
@@ -292,12 +330,10 @@ class InputData(Data):
         for i, functional in enumerate(functionals):
             functional = self.flatten(functional)
             functional = self.bandpass(functional)  # self.bandpass() is a no-op if no bandpassing parameters are set
-            if standardize:
-                functional = standardize_array(functional)
             if detrend:
                 functional = detrend_array(functional)
-            if normalize:
-                functional = sk_normalize(functional, axis=1)
+            if standardize:
+                functional = standardize_array(functional)
             functionals[i] = functional
 
         self.nii_ref = nii_ref_path
@@ -329,110 +365,62 @@ class InputData(Data):
         mask.to_filename(join(output_dir, 'mask%s' % suffix))
 
 
-class ReferenceData(Data):
+class AtlasData(Data):
     def __init__(
             self,
-            reference_atlases=None,
+            atlases=None,
             fwhm=None,
+            resampling_target_nii=None,
             compress_outputs=True
     ):
 
-        if reference_atlases is None:
-            reference_atlases = []
-        elif isinstance(reference_atlases, str):
-            reference_atlases = []
+        if atlases is None:
+            atlases = []
+        elif isinstance(atlases, str):
+            if atlases.lower() in ('all', 'all_reference'):
+                atlases = ALL_REFERENCE
+            else:
+                atlases = [atlases]
 
-        assert len(reference_atlases), 'At least one reference atlas must be provided for evaluation.'
+        assert len(atlases), 'At least one reference atlas must be provided for evaluation.'
 
         # Load
-        _reference_atlases = {}  # Structure: atlas_name: atlas_nii
-        reference_atlas_names = []
+        if isinstance(resampling_target_nii, str):
+            resampling_target_nii = image.smooth_img(resampling_target_nii, None)
+        _atlases = {}  # Structure: atlas_name: atlas_nii
+        _atlas_names = []
         nii_ref_path = None
-        for i, reference_atlas in enumerate(reference_atlases):
-            if isinstance(reference_atlases, dict):
-                reference_atlas = {reference_atlas: reference_atlases[reference_atlas]}
-            reference_atlas, reference_atlas_path, val = get_atlas(reference_atlas, fwhm=fwhm)
+        for i, reference_atlas in enumerate(atlases):
+            if isinstance(atlases, dict):
+                reference_atlas = {reference_atlas: atlases[reference_atlas]}
+            reference_atlas, reference_atlas_path, nii = get_atlas(reference_atlas, fwhm=fwhm)
+            if resampling_target_nii is not None:
+                nii = resample_to(nii, resampling_target_nii)
             if nii_ref_path is None:
                 nii_ref_path = reference_atlas_path
-            reference_atlas_names.append(reference_atlas)
-            _reference_atlases[reference_atlas] = val
-        reference_atlases = _reference_atlases
+            _atlas_names.append(reference_atlas)
+            _atlases[reference_atlas] = nii
+        atlases = _atlases
 
-        super().__init__(nii_ref_path, fwhm=fwhm)
+        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii)
 
         # Perform any post-processing and save reference/evaluation images
-        for key in reference_atlases:
-            val = reference_atlases[key]
-            val = self.flatten(val)
-            # val = standardize_array(val)
-            reference_atlases[key] = val
+        for key in atlases:
+            nii = atlases[key]
+            nii = self.flatten(nii)
+            atlases[key] = nii
 
-        self.reference_atlases = reference_atlases
-        self.reference_atlas_names = reference_atlas_names
+        self.atlases = atlases
+        self.atlas_names = _atlas_names
         self.compress_outputs = compress_outputs
 
-    def save_atlases(self, output_dir, compress_outputs=None):
+    def save_atlases(self, output_dir, prefix='', compress_outputs=None):
         if compress_outputs is None:
             compress_outputs = self.compress_outputs
         suffix = get_suffix(compress_outputs)
 
         # Perform any post-processing and save reference/evaluation images
-        reference_atlases = self.reference_atlases
+        reference_atlases = self.atlases
         for key in reference_atlases:
             val = self.unflatten(reference_atlases[key])
-            val.to_filename(join(output_dir, '%s%s%s' % (REFERENCE_ATLAS_PREFIX, key, suffix)))
-
-
-class EvaluationData(Data):
-    def __init__(
-            self,
-            evaluation_atlases=None,
-            fwhm=None,
-            compress_outputs=True
-    ):
-        if evaluation_atlases is None:
-            evaluation_atlases = {}
-
-        assert len(evaluation_atlases), 'At least one evaluation atlas must be provided for evaluation.'
-
-        # Load
-        _evaluation_atlases = {}  # Structure: reference_atlas_name: evaluation_atlas_name: atlas_nii
-        nii_ref_path = None
-        for i, reference_atlas in enumerate(evaluation_atlases):
-            for evaluation_atlas in evaluation_atlases[reference_atlas]:
-                if isinstance(evaluation_atlases[reference_atlas], dict):
-                    evaluation_atlas = {evaluation_atlas: evaluation_atlases[reference_atlas][evaluation_atlas]}
-                evaluation_atlas, evaluation_atlas_path, val = get_atlas(evaluation_atlas, fwhm=fwhm)
-                if nii_ref_path is None:
-                    nii_ref_path = evaluation_atlas_path
-                if reference_atlas not in _evaluation_atlases:
-                    _evaluation_atlases[reference_atlas] = {}
-                _evaluation_atlases[reference_atlas][evaluation_atlas] = val
-        evaluation_atlases = _evaluation_atlases
-
-        super().__init__(nii_ref_path, fwhm=fwhm)
-
-        # Perform any post-processing and save evaluation images
-        for reference_atlas in evaluation_atlases:
-            _evaluation_atlases = evaluation_atlases[reference_atlas]
-            for key in _evaluation_atlases:
-                val = _evaluation_atlases[key]
-                val = self.flatten(val)
-                # val = standardize_array(val)
-                _evaluation_atlases[key] = val
-
-        self.evaluation_atlases = evaluation_atlases
-        self.compress_outputs = compress_outputs
-
-    def save_atlases(self, output_dir, compress_outputs=None):
-        if compress_outputs is None:
-            compress_outputs = self.compress_outputs
-        suffix = get_suffix(compress_outputs)
-
-        # Perform any post-processing and save reference/evaluation images
-        evaluation_atlases = self.evaluation_atlases
-        for reference_atlas in evaluation_atlases:
-            _evaluation_atlases = evaluation_atlases[reference_atlas]
-            for key in _evaluation_atlases:
-                val = self.unflatten(_evaluation_atlases[key])
-                val.to_filename(join(output_dir, '%s%s_%s%s' % (EVALUATION_ATLAS_PREFIX, reference_atlas, key, suffix)))
+            val.to_filename(join(output_dir, '%s%s%s' % (prefix, key, suffix)))

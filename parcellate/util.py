@@ -161,17 +161,23 @@ def validate_action_sequence(action_sequence):
             next_action_type = next_action['type']
 
             if action_type == 'sample':
-                assert next_action_type == 'align', ('Got invalid action sequence %s -> %s' %
+                assert next_action_type in ('align', 'label'), ('Got invalid action sequence %s -> %s' %
                     (action_type, next_action_type))
                 if 'sample_id' in next_action['kwargs']:
                     assert next_action['kwargs']['sample_id'] == action_id, ('Got sample_id %s, but align expects '
                         'sample_id %s.' % (action_id, next_action['kwargs']['sample_id']))
             elif action_type == 'align':
-                assert next_action_type in ('evaluate', 'aggregate', 'parcellate'), ('Got invalid action sequence '
+                assert next_action_type in ('label', 'aggregate', 'parcellate'), ('Got invalid action sequence '
                     '%s -> %s' % (action_type, next_action_type))
                 if 'alignment_id' in next_action['kwargs']:
                     assert next_action['kwargs']['alignment_id'] == action_id, ('Got alignment_id %s, but %s expects '
                         'alignment_id %s.' % (action_id, next_action_type, next_action['kwargs']['alignment_id']))
+            elif action_type == 'label':
+                assert next_action_type in ('evaluate', 'aggregate', 'parcellate'), ('Got invalid action sequence '
+                    '%s -> %s' % (action_type, next_action_type))
+                if 'labeling_id' in next_action['kwargs']:
+                    assert next_action['kwargs']['labeling_id'] == action_id, ('Got labeling_id %s, but %s expects '
+                        'labeling_id %s.' % (action_id, next_action_type, next_action['kwargs']['labeling_id']))
             elif action_type == 'evaluate':
                 assert next_action_type in ('aggregate', 'parcellate'), ('Got invalid action sequence '
                     '%s -> %s' % (action_type, next_action_type))
@@ -250,6 +256,7 @@ def get_overwrite(overwrite):
     out = dict(
         sample=False,
         align=False,
+        label=False,
         evaluate=False,
         aggregate=False,
         parcellate=False

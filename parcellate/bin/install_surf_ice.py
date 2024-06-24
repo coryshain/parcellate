@@ -17,7 +17,7 @@ if __name__ == '__main__':
     else:
         os_name = os_cur
 
-    surf_ice_dir = join(dirname(dirname(dirname(__file__))), 'resources', 'surfice')
+    surf_ice_dir = join(dirname(dirname(__file__)), 'resources', 'surfice')
     if not os.path.exists(surf_ice_dir):
         os.makedirs(surf_ice_dir)
 
