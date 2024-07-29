@@ -128,27 +128,29 @@ def plot_atlases(
             break
     assert binary_path, 'No Surf Ice executable found'
 
-    script = _get_surf_ice_script(
-        cfg_paths,
-        parcellation_ids=parcellation_ids,
-        subnetwork_id=subnetwork_id,
-        reference_atlas_names=reference_atlas_names,
-        evaluation_atlas_names=evaluation_atlas_names
-    )
-
-    tmp_path = 'PARCELLATE_SURFICE_SCRIPT_TMP.py'
-    with open(tmp_path, 'w') as f:
-        f.write(script)
-
-    subprocess.call([binary_path, '-S', tmp_path])
-
-    os.remove(tmp_path)
-
     for cfg_path in cfg_paths:
         if not os.path.exists(cfg_path):
             continue
+        print(cfg_path)
         cfg = get_cfg(cfg_path)
         output_dir = cfg['output_dir']
+
+        script = _get_surf_ice_script(
+            [cfg_path],
+            parcellation_ids=parcellation_ids,
+            subnetwork_id=subnetwork_id,
+            reference_atlas_names=reference_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names
+        )
+    
+        tmp_path = 'PARCELLATE_SURFICE_SCRIPT_TMP.py'
+        with open(tmp_path, 'w') as f:
+            f.write(script)
+    
+        subprocess.call([binary_path, '-S', tmp_path])
+    
+        os.remove(tmp_path)
+
         for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
             if parcellation_ids is None or \
                     parcellation_dir in parcellation_ids or \
