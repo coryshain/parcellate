@@ -2,14 +2,17 @@ import sys
 import os
 import argparse
 
+from parcellate.cfg import get_cfg
+from parcellate.util import get_path
+
+
 base = """#!/bin/bash
 #
 #SBATCH --job-name=%s
 #SBATCH --output="%s-%%N-%%j.out"
 #SBATCH --time=%d:00:00
 #SBATCH --mem=%dgb
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=%d
+#SBATCH --ntasks=%d
 """
 
  
@@ -24,6 +27,9 @@ if __name__ == '__main__':
     argparser.add_argument('-m', '--memory', type=int, default=8, help='Number of GB of memory to request')
     argparser.add_argument('-P', '--slurm_partition', default=None, help='Value for SLURM --partition setting, if applicable')
     argparser.add_argument('-e', '--exclude', nargs='+', help='Nodes to exclude')
+    argparser.add_argument('-s', '--storage_dir', help='Path to directory to move results to upon completion of the job. A softlink will be created at the original path')
+    argparser.add_argument('-d', '--n_subdir', type=int, default=1, help=('Number of additional parent subdirectories to include in '
+                                                                  'end-training move operation. Ignored unless --storage_dir is used.'))
     argparser.add_argument('-o', '--outdir', default='./', help='Directory in which to place generated batch scripts')
     args = argparser.parse_args()
 
@@ -37,6 +43,8 @@ if __name__ == '__main__':
         exclude = ','.join(args.exclude)
     else:
         exclude = []
+    storage_dir = args.storage_dir
+    n_subdir = args.n_subdir
     outdir = args.outdir
 
     if not os.path.exists(outdir):
@@ -52,4 +60,21 @@ if __name__ == '__main__':
             if exclude:
                 f.write('#SBATCH --exclude=%s\n' % exclude)
             f.write('\n')
-            f.write('python -m parcellate.bin.main %s -P\n' % path)
+            f.write('python -m parcellate.bin.train %s -P\n' % path)
+            if storage_dir:
+                softlink_dir = get_cfg(path)['output_dir']
+                data_dir = os.path.basename(softlink_dir)
+                parent_dir = os.path.dirname(softlink_dir)
+                for _ in range(n_subdir):
+                    data_dir = os.path.join(os.path.basename(parent_dir), data_dir)
+                    parent_dir = os.path.dirname(data_dir)
+                data_dir = os.path.join(os.path.normpath(os.path.realpath(storage_dir)), data_dir)
+                f.write('if ! [[ test -L %s ]]; then\n' % softlink_dir)  # Stop if the target is already a softlink
+                f.write('    mkdir -p %s\n' % (os.path.dirname(data_dir)))
+                f.write('    if [[ test -f %s ]]; then\n' % data_dir)  # data_dir already exists, must be from failed previous mv attempt, delete it
+                f.write('        rm -r %s\n' % data_dir)
+                f.write('    fi\n')
+                f.write('    mv %s %s\n' % (softlink_dir, data_dir))
+                f.write('    ln -s %s %s\n' % (data_dir, softlink_dir))
+                f.write('fi\n')
+

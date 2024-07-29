@@ -239,7 +239,7 @@ def _get_atlas_paths(
                     evaluate_kwargs = x['kwargs']
                     evaluation_map = evaluate_kwargs.get(
                         'evaluation_map',
-                        out[parcellation_id]['reference_atlases'].keys()
+                        out[parcellation_id]['reference_atlases']
                     )
                     for reference_atlas in evaluation_map:
                         reference_to_evaluation[reference_atlas] = []
