@@ -239,12 +239,15 @@ def _get_atlas_paths(
                     evaluate_kwargs = x['kwargs']
                     evaluation_map = evaluate_kwargs.get(
                         'evaluation_map',
-                        out[parcellation_id]['reference_atlases']
+                        None
                     )
-                    for reference_atlas in evaluation_map:
+                    for reference_atlas in out[parcellation_id]['reference_atlases']:
                         reference_to_evaluation[reference_atlas] = []
-                        for evaluation_atlas in evaluation_map[reference_atlas]:
-                            reference_to_evaluation[reference_atlas].append(evaluation_atlas)
+                        if evaluation_map is None:
+                            reference_to_evaluation[reference_atlas] = out[parcellation_id]['evaluation_atlases'].copy()
+                        else:
+                            for evaluation_atlas in evaluation_map[reference_atlas]:
+                                reference_to_evaluation[reference_atlas].append(evaluation_atlas)
 
             out[parcellation_id]['reference_to_evaluation'] = reference_to_evaluation
 
