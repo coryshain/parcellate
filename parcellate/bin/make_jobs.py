@@ -69,12 +69,14 @@ if __name__ == '__main__':
                     data_dir = os.path.join(os.path.basename(parent_dir), data_dir)
                     parent_dir = os.path.dirname(data_dir)
                 data_dir = os.path.join(os.path.normpath(os.path.realpath(storage_dir)), data_dir)
-                f.write('if ! [[ test -L %s ]]; then\n' % softlink_dir)  # Stop if the target is already a softlink
+                f.write('if ! [[ -L %s ]]; then\n' % softlink_dir)  # Stop if the target is already a softlink
+                f.write('    echo "Ensuring directory %s exists"\n' % (os.path.dirname(data_dir)))
                 f.write('    mkdir -p %s\n' % (os.path.dirname(data_dir)))
-                f.write('    if [[ test -f %s ]]; then\n' % data_dir)  # data_dir already exists, must be from failed previous mv attempt, delete it
-                f.write('        rm -r %s\n' % data_dir)
+                f.write('    if [[ -d %s ]]; then\n' % softlink_dir)  # Stop if the target doesn't exist
+                f.write('        echo "Moving directory %s to storage"\n' % softlink_dir)
+                f.write('        mv %s %s\n' % (softlink_dir, os.path.dirname(data_dir)))
                 f.write('    fi\n')
-                f.write('    mv %s %s\n' % (softlink_dir, data_dir))
+                f.write('    echo "Linking to directory %s"\n' % data_dir)
                 f.write('    ln -s %s %s\n' % (data_dir, softlink_dir))
                 f.write('fi\n')
 
