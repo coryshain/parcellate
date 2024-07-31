@@ -113,7 +113,8 @@ def plot_atlases(
         parcellation_ids=None,
         subnetwork_id=1,
         reference_atlas_names=None,
-        evaluation_atlas_names=None
+        evaluation_atlas_names=None,
+        overwrite_atlases=False
 ):
     if isinstance(cfg_paths, str):
         cfg_paths = [cfg_paths]
@@ -134,6 +135,22 @@ def plot_atlases(
         print(cfg_path)
         cfg = get_cfg(cfg_path)
         output_dir = cfg['output_dir']
+
+        if overwrite_atlases:
+            skip = False
+        else:
+            skip = True
+            for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
+                if parcellation_ids is None or \
+                        parcellation_dir in parcellation_ids or \
+                        parcellation_dir == parcellation_ids:
+                    breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
+                    if not os.path.exists(breadcrumb_path):
+                        skip = False
+                        break
+
+        if skip:
+            continue
 
         script = _get_surf_ice_script(
             [cfg_path],
@@ -184,6 +201,10 @@ def plot_atlases(
                     new_im.save('%s.png' % img_prefix)
                     for img_path in img_paths:
                         os.remove(img_path)
+
+                breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
+                with open(breadcrumb_path, 'w') as f:
+                    f.write('Finished')
 
 
 def _get_atlas_paths(
@@ -1579,6 +1600,9 @@ if __name__ == '__main__':
     argparser.add_argument('-D', '--dump_data', action='store_true', help=textwrap.dedent('''\
         Save plot data to CSV.'''
     ))
+    argparser.add_argument('-O', '--overwrite_atlases', action='store_true', help=textwrap.dedent('''\
+        Overwrite existing atlas plots. If not used, previously completed plot sets will be skipped.'''
+    ))
     argparser.add_argument('-o', '--output_dir', default='plots', help=textwrap.dedent('''\
         Output directory for performance and grid plots (atlases are saved in each model directory).
     '''))
@@ -1598,6 +1622,7 @@ if __name__ == '__main__':
         subnetwork_id = None
     include_thresholds = args.include_thresholds
     dump_data = args.dump_data
+    overwrite_atlases = args.overwrite_atlases
     output_dir = args.output_dir
 
     if plot_type & {'atlas', 'all'}:
@@ -1606,7 +1631,8 @@ if __name__ == '__main__':
             parcellation_ids=parcellation_ids,
             subnetwork_id=subnetwork_id,
             reference_atlas_names=reference_atlas_names,
-            evaluation_atlas_names=evaluation_atlas_names
+            evaluation_atlas_names=evaluation_atlas_names,
+            overwrite_atlases=overwrite_atlases
         )
     if plot_type & {'group_atlas', 'all'}:
         plot_group_atlases(
