@@ -144,6 +144,7 @@ def plot_atlases(
                 if parcellation_ids is None or \
                         parcellation_dir in parcellation_ids or \
                         parcellation_dir == parcellation_ids:
+                    parcellation_dir = join(output_dir, 'parcellation', parcellation_dir, 'plots')
                     breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
                     if not os.path.exists(breadcrumb_path):
                         skip = False
