@@ -38,7 +38,7 @@ def sample(
         low_pass=0.1,
         high_pass=0.01,
         n_samples=100,
-        n_components_ica=None,
+        n_components_ica=100,
         use_connectivity_profile=False,
         clustering_kwargs=None,
         compress_outputs=True,
