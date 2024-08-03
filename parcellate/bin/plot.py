@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from nilearn import image
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.request import urlopen
 import matplotlib.font_manager as fm
 from matplotlib import pyplot as plt
@@ -26,9 +26,8 @@ from parcellate.util import *
 roboto_url = 'https://github.com/google/fonts/blob/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf'
 url = roboto_url + '?raw=true'
 response = urlopen(url)
-f = NamedTemporaryFile(delete=False, suffix='.ttf')
+f = NamedTemporaryFile(suffix='.ttf')
 f.write(response.read())
-f.close()
 fm.fontManager.addfont(f.name)
 prop = fm.FontProperties(fname=f.name)
 plt.rcParams['font.family'] = 'sans-serif'
@@ -70,6 +69,10 @@ COLORS = np.array([
     [255, 0, 64],     # Hot Pink
     [0, 64, 255],     # Ocean
 ], dtype=int)
+RED = COLORS[0]
+BLUE = COLORS[1]
+GREEN = COLORS[2]
+BASE_BRIGHTNESS = 0.1  # Value from 0. (black) to 1. (full color)
 
 
 
@@ -90,11 +93,16 @@ def sample_color():
     r = round(r / max_val * 255)
     g = round(g / max_val * 255)
     b = round(b / max_val * 255)
-    r0 = round(r / 2)
-    g0 = round(g / 2)
-    b0 = round(b / 2)
 
-    return r0, g0, b0, r, g, b
+    return r, g, b
+
+def expand_color(color, base_brightness=0.5):
+    out = tuple([
+        int(round(x * base_brightness)) for x in color
+    ]) + tuple(color)
+
+    return out
+
 
 
 
@@ -129,83 +137,101 @@ def plot_atlases(
             break
     assert binary_path, 'No Surf Ice executable found'
 
-    for cfg_path in cfg_paths:
-        if not os.path.exists(cfg_path):
-            continue
-        print(cfg_path)
-        cfg = get_cfg(cfg_path)
-        output_dir = cfg['output_dir']
+    with TemporaryDirectory() as tmp_dir_path:
+        for cfg_path in cfg_paths:
+            if not os.path.exists(cfg_path):
+                continue
+            print(cfg_path)
+            cfg = get_cfg(cfg_path)
+            output_dir = cfg['output_dir']
 
-        if overwrite_atlases:
-            skip = False
-        else:
-            skip = True
-            for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
+            if overwrite_atlases:
+                skip = False
+            else:
+                skip = True
+                for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
+                    if parcellation_ids is None or \
+                            parcellation_dir in parcellation_ids or \
+                            parcellation_dir == parcellation_ids:
+                        parcellation_dir = join(output_dir, 'parcellation', parcellation_dir, 'plots')
+                        breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
+                        if not os.path.exists(breadcrumb_path):
+                            skip = False
+                            break
+
+            if skip:
+                continue
+
+            atlas_paths = _get_atlas_paths(
+                cfg_path,
+                parcellation_ids=parcellation_ids,
+                reference_atlas_names=reference_atlas_names,
+                evaluation_atlas_names=evaluation_atlas_names
+            )
+
+            atlas_paths_orig = update_atlas_paths(atlas_paths, tmp_dir_path)
+            copy_paths = list(atlas_paths_orig) + [tmp_dir_path]
+
+            print('  Copying atlases to temporary directory...')
+
+            subprocess.call(['cp'] + copy_paths)
+
+            script = _get_surf_ice_script(
+                [cfg_path],
+                atlas_paths=atlas_paths,
+                subnetwork_id=subnetwork_id,
+            )
+
+            tmp_path = os.path.join(tmp_dir_path, 'PARCELLATE_SURFICE_SCRIPT_TMP.py')
+            with open(tmp_path, 'w') as f:
+                f.write(script)
+
+            print('  Generating subplots...')
+
+            subprocess.call([binary_path, '-S', tmp_path])
+
+            print('  Stitching plots...')
+            for parcellation_dir in os.listdir(join(tmp_dir_path, 'parcellation')):
                 if parcellation_ids is None or \
                         parcellation_dir in parcellation_ids or \
                         parcellation_dir == parcellation_ids:
-                    parcellation_dir = join(output_dir, 'parcellation', parcellation_dir, 'plots')
-                    breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
-                    if not os.path.exists(breadcrumb_path):
-                        skip = False
-                        break
+                    parcellation_id = parcellation_dir
+                    parcellation_dir = join(tmp_dir_path, 'parcellation', parcellation_id, 'plots')
+                    img_prefixes = set()
+                    for img in [x for x in os.listdir(parcellation_dir) if _is_hemi(x)]:
+                        img_prefix = '_'.join(img.split('_')[:-2])
+                        img_prefix = join(parcellation_dir, img_prefix)
+                        img_prefixes.add(img_prefix)
+                    for img_prefix in img_prefixes:
+                        imgs = []
+                        img_paths = []
+                        for hemi in ('left', 'right'):
+                            if hemi == 'left':
+                                views = ('lateral', 'medial')
+                            else:
+                                views = ('medial', 'lateral')
+                            for view in views:
+                                img_path = img_prefix + '_%s_%s.png' % (hemi, view)
+                                imgs.append(Image.open(img_path))
+                                img_paths.append(img_path)
+                        widths, heights = zip(*(i.size for i in imgs))
+                        total_width = sum(widths)
+                        max_height = max(heights)
+                        new_im = Image.new('RGB', (total_width, max_height))
+                        x_offset = 0
+                        for im in imgs:
+                            new_im.paste(im, (x_offset, 0))
+                            x_offset += im.size[0]
+                        new_im.save('%s.png' % img_prefix)
+                        for img_path in img_paths:
+                            os.remove(img_path)
 
-        if skip:
-            continue
+                    dest_dir = join(output_dir, 'parcellation', parcellation_id)
+                    subprocess.call(['cp', '-r', parcellation_dir, dest_dir])
 
-        script = _get_surf_ice_script(
-            [cfg_path],
-            parcellation_ids=parcellation_ids,
-            subnetwork_id=subnetwork_id,
-            reference_atlas_names=reference_atlas_names,
-            evaluation_atlas_names=evaluation_atlas_names
-        )
-    
-        tmp_path = 'PARCELLATE_SURFICE_SCRIPT_TMP.py'
-        with open(tmp_path, 'w') as f:
-            f.write(script)
-    
-        subprocess.call([binary_path, '-S', tmp_path])
-    
-        os.remove(tmp_path)
-
-        for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
-            if parcellation_ids is None or \
-                    parcellation_dir in parcellation_ids or \
-                    parcellation_dir == parcellation_ids:
-                parcellation_dir = join(output_dir, 'parcellation', parcellation_dir, 'plots')
-                img_prefixes = set()
-                for img in [x for x in os.listdir(parcellation_dir) if _is_hemi(x)]:
-                    img_prefix = '_'.join(img.split('_')[:-2])
-                    img_prefix = join(parcellation_dir, img_prefix)
-                    img_prefixes.add(img_prefix)
-                for img_prefix in img_prefixes:
-                    imgs = []
-                    img_paths = []
-                    for hemi in ('left', 'right'):
-                        if hemi == 'left':
-                            views = ('lateral', 'medial')
-                        else:
-                            views = ('medial', 'lateral')
-                        for view in views:
-                            img_path = img_prefix + '_%s_%s.png' % (hemi, view)
-                            imgs.append(Image.open(img_path))
-                            img_paths.append(img_path)
-                    widths, heights = zip(*(i.size for i in imgs))
-                    total_width = sum(widths)
-                    max_height = max(heights)
-                    new_im = Image.new('RGB', (total_width, max_height))
-                    x_offset = 0
-                    for im in imgs:
-                        new_im.paste(im, (x_offset, 0))
-                        x_offset += im.size[0]
-                    new_im.save('%s.png' % img_prefix)
-                    for img_path in img_paths:
-                        os.remove(img_path)
-
-                breadcrumb_path = os.path.join(parcellation_dir, 'finished.txt')
-                with open(breadcrumb_path, 'w') as f:
-                    f.write('Finished')
+                    breadcrumb_path = os.path.join(dest_dir, 'plots', 'finished.txt')
+                    with open(breadcrumb_path, 'w') as f:
+                        f.write('Finished')
 
 
 def _get_atlas_paths(
@@ -270,24 +296,44 @@ def _get_atlas_paths(
                         if evaluation_map is None:
                             reference_to_evaluation[reference_atlas] = out[parcellation_id]['evaluation_atlases'].copy()
                         else:
-                            for evaluation_atlas in evaluation_map[reference_atlas]:
-                                reference_to_evaluation[reference_atlas].append(evaluation_atlas)
+                            if reference_atlas in evaluation_map:
+                                for evaluation_atlas in evaluation_map[reference_atlas]:
+                                    reference_to_evaluation[reference_atlas].append(evaluation_atlas)
 
             out[parcellation_id]['reference_to_evaluation'] = reference_to_evaluation
 
     return out
 
 
+def update_atlas_paths(
+        atlas_paths,
+        dest_dir,
+        memo=None
+):
+    if memo is None:
+        memo = set()
+    for x in atlas_paths:
+        if x == 'reference_to_evaluation':
+            continue
+        if isinstance(atlas_paths[x], dict):
+            update_atlas_paths(atlas_paths[x], dest_dir, memo=memo)
+        else:
+            if atlas_paths[x] not in memo:
+                memo.add(atlas_paths[x])
+            new_path = os.path.join(dest_dir, os.path.basename(atlas_paths[x]))
+            atlas_paths[x] = new_path
+
+    return memo
+
+
 def _get_surf_ice_script(
         cfg_paths,
-        parcellation_ids=None,
+        atlas_paths,
         subnetwork_id=1,
-        reference_atlas_names=None,
-        evaluation_atlas_names=None,
-        min_p=0.3,
-        max_p=0.5,
-        min_act=0.3,
-        max_act=0.5,
+        min_p=0.1,
+        max_p=1.,
+        min_act=0.1,
+        max_act=1.,
         x_res=400,
         y_res=300
 ):
@@ -314,12 +360,8 @@ def _get_surf_ice_script(
     for cfg_path in cfg_paths:
         if not os.path.exists(cfg_path):
             continue
-        atlas_paths = _get_atlas_paths(
-            cfg_path,
-            parcellation_ids=parcellation_ids,
-            reference_atlas_names=reference_atlas_names,
-            evaluation_atlas_names=evaluation_atlas_names
-        )
+
+        cfg = get_cfg(cfg_path)
 
         for parcellation_id in atlas_paths:
             if subnetwork_id:
@@ -331,18 +373,21 @@ def _get_surf_ice_script(
             plot_set = {}
             output_path = None
             colors = COLORS
-            colors = np.concatenate([(colors / 2).round().astype(int), colors], axis=1).tolist()
             for i, reference_atlas_name in enumerate(atlas_paths[parcellation_id]['reference_atlases']):
                 atlas_name = reference_atlas_name + suffix
                 if atlas_name in atlas_paths[parcellation_id]['atlases']:
                     if output_path is None:
                         output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
-                        output_path = join(output_dir, 'plots', 'parcellation%s_%%s_%%s.png' % suffix)
+                        output_path = join(
+                            output_dir, 'parcellation', parcellation_id, 'plots', 'parcellation%s_%%s_%%s.png' % suffix
+                        )
 
                     if i > len(colors):
                         color = sample_color()
                     else:
                         color = colors[i]
+
+                    color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
 
                     plot_set[reference_atlas_name] = dict(
                         name=atlas_name,
@@ -360,7 +405,10 @@ def _get_surf_ice_script(
                 output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
 
                 # Subnetworks
-                output_path = join(output_dir, 'plots', '%s_subnetworks_%%s_%%s.png' % reference_atlas_name)
+                output_path = join(
+                    output_dir, 'parcellation', parcellation_id, 'plots',
+                    '%s_subnetworks_%%s_%%s.png' % reference_atlas_name
+                )
                 subatlases = {}
                 for x in atlas_paths[parcellation_id]['atlases']:
                     if re.sub('_sub\d+$', '_sub', x) == reference_atlas_name + '_sub':
@@ -368,7 +416,6 @@ def _get_surf_ice_script(
                         subatlases[ix] = atlas_paths[parcellation_id]['atlases'][x]
                 green = np.linspace(0, 255, len(subatlases)).astype(int)
                 colors = np.stack([[255] * len(green), green, [0] * len(green)], axis=1)
-                colors = np.concatenate([(colors / 2).round().astype(int), colors], axis=1)
                 colors = colors.tolist()
                 plot_set = {}
                 for i, ix in enumerate(sorted(list(subatlases.keys()))):
@@ -376,7 +423,7 @@ def _get_surf_ice_script(
                         name=reference_atlas_name + '_sub%d' % ix,
                         path=subatlases[ix],
                         output_path=output_path,
-                        color=colors[i],
+                        color=expand_color(colors[i]),
                         min=min_p,
                         max=max_p
                     )
@@ -384,13 +431,15 @@ def _get_surf_ice_script(
 
                 # Network vs. reference
                 if atlas_name in atlas_paths[parcellation_id]['atlases']:
-                    output_path = join(output_dir, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name)
+                    output_path = join(
+                        output_dir, 'parcellation', parcellation_id, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name
+                    )
                     plot_set = dict(
                         atlas=dict(
                             name=atlas_name,
                             path=atlas_paths[parcellation_id]['atlases'][atlas_name],
                             output_path=output_path,
-                            color=(128, 0, 0, 255, 0, 0),
+                            color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
                             min=min_p,
                             max=max_p
                         ),
@@ -398,7 +447,7 @@ def _get_surf_ice_script(
                             name=reference_atlas_name,
                             path=atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name],
                             output_path=output_path,
-                            color=(0, 128, 0, 0, 255, 0),
+                            color=expand_color(GREEN, base_brightness=BASE_BRIGHTNESS),
                             min=min_p,
                             max=max_p
                         ),
@@ -408,15 +457,18 @@ def _get_surf_ice_script(
                     # Network vs. evaluation
                     reference_to_evaluation = atlas_paths[parcellation_id]['reference_to_evaluation']
                     for evaluation_atlas_name in reference_to_evaluation.get(reference_atlas_name, []):
+                        if evaluation_atlas_name not in atlas_paths[parcellation_id]['evaluation_atlases']:
+                            continue
                         output_path = join(
-                            output_dir, 'plots', '%s_vs_%s_%%s_%%s.png' % (atlas_name, evaluation_atlas_name)
+                            output_dir, 'parcellation', parcellation_id,
+                            'plots', '%s_vs_%s_%%s_%%s.png' % (atlas_name, evaluation_atlas_name)
                         )
                         plot_set = dict(
                             atlas=dict(
                                 name=atlas_name,
                                 path=atlas_paths[parcellation_id]['atlases'][atlas_name],
                                 output_path=output_path,
-                                color=(128, 0, 0, 255, 0, 0),
+                                color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
                                 min=min_p,
                                 max=max_p
                             ),
@@ -424,7 +476,7 @@ def _get_surf_ice_script(
                                 name=evaluation_atlas_name,
                                 path=atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name],
                                 output_path=output_path,
-                                color=(0, 0, 128, 0, 0, 255),
+                                color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
                                 min=min_act,
                                 max=max_act
                             ),
@@ -461,7 +513,7 @@ def _get_surf_ice_script(
                     min_act = plot_set[atlas_name]['min']
                     max_act = plot_set[atlas_name]['max']
     
-                    gl.overlayload(atlas_path)
+                    overlay = gl.overlayload(atlas_path)
                     gl.overlaycolor(i + 1, *color)
                     gl.overlayminmax(i + 1, min_act, max_act)
                     
@@ -627,16 +679,15 @@ def _get_surf_ice_script_group(
         input_paths.append(_input_paths)
         if len(_input_paths) <= 3:
             _colors = [
-                (128, 0, 0, 255, 0, 0),  # Red
-                (0, 0, 128, 0, 0, 255),  # Blue
-                (0, 128, 0, 0, 255, 0),  # Green
+                expand_color(RED, base_brightness=BASE_BRIGHTNESS),
+                expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
+                expand_color(GREEN, base_brightness=BASE_BRIGHTNESS),
             ]
         else:
             _colors = []
             for _ in range(len(_input_paths)):
-                color_high = np.random.randint(0, 256, size=3)
-                color_low = color_high // 2
-                color = tuple(color_low) + tuple(color_high)
+                color = np.random.randint(0, 256, size=3)
+                color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
                 _colors.append(color)
         colors.append(_colors)
 
@@ -1674,3 +1725,5 @@ if __name__ == '__main__':
             plot_dir=join(output_dir, 'grid'),
             dump_data=dump_data
         )
+
+f.close()
