@@ -59,7 +59,7 @@ if __name__ == '__main__':
                 f.write('#SBATCH --partition=%s\n' % slurm_partition)
             if exclude:
                 f.write('#SBATCH --exclude=%s\n' % exclude)
-            f.write('\n')
+            f.write('\n\nset -e\n\n')
             f.write('python -m parcellate.bin.train %s -P\n' % path)
             if storage_dir:
                 softlink_dir = get_cfg(path)['output_dir']
