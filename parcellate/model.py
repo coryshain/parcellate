@@ -140,7 +140,6 @@ def sample(
         else:
             X = timecourse
         if n_components_pca:
-            print('PCA!')
             n_components = min(n_components_pca, t)
             m = PCA(n_components=n_components)
             X = m.fit_transform(X)
