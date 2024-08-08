@@ -38,6 +38,7 @@ def sample(
         low_pass=0.1,
         high_pass=0.01,
         n_samples=100,
+        n_components_pca=100,
         n_components_ica=100,
         use_connectivity_profile=False,
         clustering_kwargs=None,
@@ -81,6 +82,7 @@ def sample(
             low_pass=low_pass,
             high_pass=high_pass,
             n_samples=n_samples,
+            n_components_pca=n_components_pca,
             n_components_ica=n_components_ica,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
@@ -137,6 +139,11 @@ def sample(
             X = (X > np.quantile(X, 0.9)).astype(int)
         else:
             X = timecourse
+        if n_components_pca:
+            print('PCA!')
+            n_components = min(n_components_pca, t)
+            m = PCA(n_components=n_components)
+            X = m.fit_transform(X)
         if n_components_ica:
             n_components = min(n_components_ica, t)
             m = FastICA(n_components=n_components, whiten='unit-variance')

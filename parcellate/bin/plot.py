@@ -145,11 +145,15 @@ def plot_atlases(
             cfg = get_cfg(cfg_path)
             output_dir = cfg['output_dir']
 
+            parcellation_path = join(output_dir, 'parcellation')
+            if not os.path.exists(parcellation_path):
+                continue
+
             if overwrite_atlases:
                 skip = False
             else:
                 skip = True
-                for parcellation_dir in os.listdir(join(output_dir, 'parcellation')):
+                for parcellation_dir in os.listdir(parcellation_path):
                     if parcellation_ids is None or \
                             parcellation_dir in parcellation_ids or \
                             parcellation_dir == parcellation_ids:
@@ -170,6 +174,8 @@ def plot_atlases(
             )
 
             atlas_paths_orig = update_atlas_paths(atlas_paths, tmp_dir_path)
+            if not len(atlas_paths_orig):
+                continue
             copy_paths = list(atlas_paths_orig) + [tmp_dir_path]
 
             print('  Copying atlases to temporary directory...')
