@@ -100,7 +100,7 @@ def get_action_sequence(
         if 'evaluation_id' in cfg[action_type][action_id]:
             action_id = cfg[action_type][action_id].get('evaluation_id', None)
             action_type = 'evaluate'
-        if 'labeling_id' in cfg[action_type][action_id]:
+        elif 'labeling_id' in cfg[action_type][action_id]:
             action_id = cfg[action_type][action_id].get('labeling_id', None)
             action_type = 'label'
         elif 'evaluate' in cfg:
