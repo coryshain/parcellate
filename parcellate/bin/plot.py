@@ -660,9 +660,9 @@ def _get_surf_ice_script_group(
 
     CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
 
-    MIN = 0.3
+    MIN = 0.1
 
-    MAX = 0.5
+    MAX = 1.
 
     X = 400
     Y = 300
