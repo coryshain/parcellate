@@ -1283,10 +1283,43 @@ def plot_grid(
         output_dir = cfg['output_dir']
         for aggregation_id in _aggregation_ids:
             df_path = get_path(output_dir, 'evaluation', 'aggregate', aggregation_id)
+            evaluation_id = None
+            action_sequence = get_action_sequence(cfg, 'aggregate', aggregation_id)
+            for action in action_sequence:
+                if action['type'] == 'evaluate':
+                    evaluation_id = action['id']
+                    break
             if os.path.exists(df_path):
+                print(df_path)
                 if aggregation_id not in dfs:
                     dfs[aggregation_id] = []
                 df = pd.read_csv(df_path)
+                grid_ids = df.grid_id.unique()
+                evaluation_df = []
+                for grid_id in grid_ids:
+                    if evaluation_id:
+                        output_dir_ = join(output_dir, 'grid', grid_id)
+                        evaluation_path = get_path(output_dir_, 'output', 'evaluate', evaluation_id)
+                        if os.path.exists(evaluation_path):
+                            df_ = pd.read_csv(evaluation_path)
+                            evaluation_cols = ['parcel', 'ref_name']
+                            for col in df_:
+                                if col not in df:
+                                    is_score = col.startswith(EVALUATION_ATLAS_PREFIX) and col.endswith('_score')
+                                    is_contrast = col.startswith(EVALUATION_ATLAS_PREFIX) and col.endswith('_contrast')
+                                    if is_score or is_contrast:
+                                        if is_score:
+                                            postfix_len = 6
+                                        else:
+                                            postfix_len = 9
+                                        atlas_name = col[:-postfix_len]
+                                        if evaluation_atlas_names is None or atlas_name in evaluation_atlas_names:
+                                            evaluation_cols.append(col)
+                            df_ = df_[evaluation_cols]
+                            df_['grid_id'] = grid_id
+                            evaluation_df.append(df_)
+                evaluation_df = pd.concat(evaluation_df, axis=0)
+                df = pd.merge(df, evaluation_df, how='outer', on=['parcel', 'ref_name', 'grid_id'])
                 df['cfg_path'] = cfg_path
                 dfs[aggregation_id].append(df)
 
@@ -1356,10 +1389,9 @@ def plot_grid(
                 _dfr = df[df.parcel == '%s%s' % (REFERENCE_ATLAS_PREFIX, reference_atlas_name)]
                 _dfr = _dfr[_dfr['%sname' % REFERENCE_ATLAS_PREFIX] == \
                             reference_atlas_name]
-                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and \
-                                           x.startswith(EVALUATION_ATLAS_PREFIX)]
-                if evaluation_atlas_names is not None:
-                    _evaluation_atlas_names = [x for x in evaluation_atlas_names if x in _evaluation_atlas_names]
+                _evaluation_atlas_names = [x[:-6] for x in df if x.endswith('_score') and
+                                           x.startswith(EVALUATION_ATLAS_PREFIX) and
+                                           (evaluation_atlas_names is None or x[:-6] in evaluation_atlas_names)]
                 for evaluation_atlas_name in _evaluation_atlas_names:
                     perf_col = '%s_score' % evaluation_atlas_name
                     selected = _df[_df.selected][[dimension, perf_col]]
@@ -1386,8 +1418,10 @@ def plot_grid(
                     dfb = []
                     for baseline_atlas_name in _baseline_atlas_names:
                         _dfb = df[df.parcel == baseline_atlas_name]
-                        _dfb = _dfb[_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == \
-                                    reference_atlas_name]
+                        _dfb = _dfb[
+                            (_dfb['%sname' % REFERENCE_ATLAS_PREFIX] == reference_atlas_name) &
+                            (_dfb['ref_name'] == reference_atlas_name)
+                        ]
                         _dfb = _dfb.pivot(
                             columns=[dimension] + _dimensions_other,
                             index='cfg_path',

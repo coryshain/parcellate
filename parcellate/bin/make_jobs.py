@@ -73,6 +73,10 @@ if __name__ == '__main__':
                 f.write('    echo "Ensuring directory %s exists"\n' % (os.path.dirname(data_dir)))
                 f.write('    mkdir -p %s\n' % (os.path.dirname(data_dir)))
                 f.write('    if [[ -d %s ]]; then\n' % softlink_dir)  # Stop if the target doesn't exist
+                f.write('        if [[ -d %s ]]; then\n' % data_dir)  # Stop if the target doesn't exist
+                f.write('            echo "Removing stale target %s"\n' % data_dir)
+                f.write('            rm -r %s\n' % data_dir)  # Stop if the target doesn't exist
+                f.write('        fi\n')
                 f.write('        echo "Moving directory %s to storage"\n' % softlink_dir)
                 f.write('        mv %s %s\n' % (softlink_dir, os.path.dirname(data_dir)))
                 f.write('    fi\n')
