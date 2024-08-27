@@ -1290,6 +1290,7 @@ def plot_grid(
                     evaluation_id = action['id']
                     break
             if os.path.exists(df_path):
+                print(df_path)
                 if aggregation_id not in dfs:
                     dfs[aggregation_id] = []
                 df = pd.read_csv(df_path)
