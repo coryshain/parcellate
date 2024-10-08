@@ -478,7 +478,7 @@ def label(
 
 def evaluate(
         output_dir,
-        evaluation_atlases,
+        evaluation_atlases=None,
         evaluation_map=None,
         evaluation_id=None,
         labeling_id=None,
@@ -516,6 +516,9 @@ def evaluate(
     output_path = get_path(output_dir, 'output', 'evaluate', evaluation_id, compressed=compress_outputs)
 
     suffix = get_suffix(compress_outputs)
+
+    if evaluation_atlases is None:
+        evaluation_atlases = {}
 
     # Collect references atlases and alignments
     labeling_dir = get_path(output_dir, 'subdir', 'label', labeling_id)

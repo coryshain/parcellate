@@ -382,7 +382,10 @@ class AtlasData(Data):
             else:
                 atlases = [atlases]
 
-        assert len(atlases), 'At least one reference atlas must be provided for evaluation.'
+        if len(atlases) == 0:
+            with pkg_resources.as_file(pkg_resources.files(resources).joinpath(ATLAS_NAME_TO_FILE['lang'])) as path:
+                resampling_target_nii = path
+        resampling_target_nii_path = resampling_target_nii
 
         # Load
         if isinstance(resampling_target_nii, str):
@@ -400,6 +403,8 @@ class AtlasData(Data):
                 nii_ref_path = reference_atlas_path
             _atlas_names.append(reference_atlas)
             _atlases[reference_atlas] = nii
+        if nii_ref_path is None:
+            nii_ref_path = resampling_target_nii_path
         atlases = _atlases
 
         super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii)
