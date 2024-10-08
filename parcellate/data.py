@@ -310,8 +310,8 @@ class InputData(Data):
                 __mask = (data.std(axis=-1) > 0) & \
                          np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
             else:  # Not a timeseries, or a single TR, don't reduce along time axis
-                data = data[..., None]
                 __mask = np.isfinite(data)
+                functional = image.new_img_like(functional, data[..., None])
             if __mask.sum() == 0:
                 stderr('No valid voxels (finite-valued, sd > 0) found in image %s. Skipping.\n' % functional_path)
                 continue
