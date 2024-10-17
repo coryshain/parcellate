@@ -302,7 +302,11 @@ class InputData(Data):
         _functionals = []
         _mask = None
         for functional_path in functional_paths:
-            functional = get_nii(functional_path, fwhm=self.fwhm)
+            try:
+                functional = get_nii(functional_path, fwhm=self.fwhm)
+            except OSError as e:
+                stderr('Error loading image %s: %s.\n\n File may be corrupted. Skipping.\n' % (functional_path, e))
+                continue
             if resampling_target_nii is not None:
                 functional = resample_to(functional, resampling_target_nii)
             data = image.get_data(functional)
