@@ -30,6 +30,7 @@ if __name__ == '__main__':
     argparser.add_argument('-s', '--storage_dir', help='Path to directory to move results to upon completion of the job. A softlink will be created at the original path')
     argparser.add_argument('-d', '--n_subdir', type=int, default=1, help=('Number of additional parent subdirectories to include in '
                                                                   'end-training move operation. Ignored unless --storage_dir is used.'))
+    argparser.add_argument('-g', '--grid_only', action='store_true', help='Only fit grid search models, do not aggregate or refit')
     argparser.add_argument('-o', '--outdir', default='./', help='Directory in which to place generated batch scripts')
     args = argparser.parse_args()
 
@@ -45,6 +46,11 @@ if __name__ == '__main__':
         exclude = []
     storage_dir = args.storage_dir
     n_subdir = args.n_subdir
+    grid_only = args.grid_only
+    if grid_only:
+        grid_only = ' -g'
+    else:
+        grid_only = ''
     outdir = args.outdir
 
     if not os.path.exists(outdir):
@@ -60,7 +66,7 @@ if __name__ == '__main__':
             if exclude:
                 f.write('#SBATCH --exclude=%s\n' % exclude)
             f.write('\n\nset -e\n\n')
-            f.write('python -m parcellate.bin.train %s -P\n' % path)
+            f.write('python -m parcellate.bin.train %s%s -P\n' % (path, grid_only))
             if storage_dir:
                 softlink_dir = get_cfg(path)['output_dir']
                 data_dir = os.path.basename(softlink_dir)
