@@ -784,6 +784,7 @@ def parcellate(
         output_dir,
         action_sequence,
         grid_params=None,
+        grid_only=False,
         eps=1e-3,
         compress_outputs=True,
         overwrite=False,
@@ -793,6 +794,7 @@ def parcellate(
     assert isinstance(output_dir, str), 'output_dir is required, must be given as a str'
     assert isinstance(action_sequence, list), ('action_sequence is required, must be given as a list of dict'
         'and grid_params must be provided as dicts, or neither can be.')
+    assert grid_params is not None or not grid_only, ('grid_params must be provided if grid_only is True.')
 
     validate_action_sequence(action_sequence)
 
@@ -875,6 +877,10 @@ def parcellate(
             )
 
         indent -= 1
+
+        if grid_only:
+            stderr('%sTotal time elapsed: %ds\n' % (' ' * (indent * 2), time.time() - t0))
+            return
 
         # Aggregate
         action = None

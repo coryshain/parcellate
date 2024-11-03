@@ -20,6 +20,10 @@ if __name__ == '__main__':
         Do not grid search, even if ``grid`` is provided.\
         '''
     ))
+    argparser.add_argument('-g', '--grid_only', action='store_true', help=textwrap.dedent('''\
+        Only run grid search, without aggregation or refitting afterward.\
+        '''
+    ))
     argparser.add_argument('-o', '--overwrite', nargs='?', default=False, help=textwrap.dedent('''\
         Whether to overwrite existing parcellation data. If ``False``, will only estimate missing results, leaving old 
         ones in place.
@@ -46,6 +50,7 @@ if __name__ == '__main__':
     config_path = args.config_path
     parcellation_id = args.parcellation_id
     nogrid = args.nogrid
+    grid_only = args.grid_only
     overwrite = args.overwrite
     do_purge_bad_nii = args.purge_bad_nii
 
@@ -79,6 +84,7 @@ if __name__ == '__main__':
         output_dir,
         action_sequence,
         grid_params=grid_params,
+        grid_only=grid_only,
         compress_outputs=compress_outputs,
         overwrite=overwrite
     )
