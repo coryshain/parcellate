@@ -6,8 +6,9 @@ import yaml
 import numpy as np
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.decomposition import PCA, FastICA
+from sklearn.decomposition import PCA, IncrementalPCA, FastICA, DictionaryLearning, MiniBatchDictionaryLearning
 from sklearn.metrics import jaccard_score
+# from sica.base import StabilizedICA
 from nilearn import image
 from fast_poibin import PoiBin
 
@@ -40,6 +41,7 @@ def sample(
         n_samples=100,
         n_components_pca=None,
         n_components_ica=None,
+        cluster=True,
         use_connectivity_profile=False,
         clustering_kwargs=None,
         compress_outputs=True,
@@ -84,6 +86,7 @@ def sample(
             n_samples=n_samples,
             n_components_pca=n_components_pca,
             n_components_ica=n_components_ica,
+            cluster=cluster,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
         )
@@ -139,13 +142,21 @@ def sample(
             X = (X > np.quantile(X, 0.9)).astype(int)
         else:
             X = timecourse
-        if n_components_pca:
+        if n_components_pca and not n_components_ica:
             n_components = min(n_components_pca, t)
-            m = PCA(n_components=n_components)
+            m = PCA(n_components=n_components, svd_solver='full', whiten=True)
+            # m = IncrementalPCA(n_components=n_components, whiten=True)
             X = m.fit_transform(X)
         if n_components_ica:
-            n_components = min(n_components_ica, t)
-            m = FastICA(n_components=n_components, whiten='unit-variance')
+            if n_components_pca:
+                m = PCA(n_components=min(n_components_pca, t), svd_solver='full', whiten=True)
+                X = m.fit_transform(X)
+            n_components = min(n_components_ica, X.shape[-1])
+            # m = FastICA(n_components=n_components, whiten='unit-variance')
+            m = FastICA(n_components=n_components, whiten='unit-variance', tol=1e-6, max_iter=1000)
+            # m = StabilizedICA(n_components=n_components, n_runs=30, n_jobs=-1)
+            # m = DictionaryLearning(n_components=n_components, verbose=True, n_jobs=-1)
+            # m = MiniBatchDictionaryLearning(n_components=n_components, verbose=True, batch_size=256, n_jobs=-1)
             X = m.fit_transform(X)
         for j in range(n_samples):
             if len(timecourses) > 1:
@@ -154,12 +165,27 @@ def sample(
                 suffix = ''
             if n_samples > 1:
                 stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
-            m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
-            _sample = m.fit_predict(X)
-            samples[:, j] = _sample
-            scores[j] = m.inertia_
+            if cluster:
+                m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
+                _sample = m.fit_predict(X)
+                _score = m.inertia_
+                samples[:, j] = _sample
+            else:
+                # Should really have been ICA/PCA transformed before getting here
+                # Minmax normalize
+                _sample = np.clip(X[..., :n_networks], 0, np.inf)
+                # _sample = (_sample - _sample.min(axis=0, keepdims=True))
+                _sample = _sample / _sample.max(axis=0, keepdims=True)
+                _score = 0
+                if j == 0:
+                    samples = _sample
+                else:
+                    samples = samples * j + _sample / (j + 1)
 
-        stderr('\n')
+            scores[j] = _score
+
+        if n_samples > 1:
+            stderr('\n')
         samples_all.append(samples)
         scores_all.append(scores)
     samples = np.concatenate(samples_all, axis=-1)
@@ -226,24 +252,24 @@ def align(
         nii_ref_path=sample_path
     )
     sample_nii = data.nii_ref
+    if image.get_data(sample_nii).dtype in (np.uint8, np.uint16):
+        samples = data.flatten(sample_nii)
+        samples = samples.T  # Shape: <n_samples, v>, values are integer network indices
 
-    samples = data.flatten(sample_nii)
-    samples = samples.T  # Shape: <n_samples, v>, values are integer network indices
+        # Align to reference
+        sample_scores = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id))['sample_score'].values
+        s_ix = np.argsort(sample_scores)
+        samples = samples[s_ix]
+        parcellation = align_samples(
+            samples,
+            scoring_method=scoring_method,
+            n_alignments=n_alignments,
+            indent=indent + 1
+        )
 
-    # We do a sparse alignment with slow python loops to avoid OOM for large n_samples or n_networks
-
-    # Align to reference
-    sample_scores = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id))['sample_score'].values
-    s_ix = np.argsort(sample_scores)
-    samples = samples[s_ix]
-    parcellation = align_samples(
-        samples,
-        scoring_method=scoring_method,
-        n_alignments=n_alignments,
-        indent=indent + 1
-    )
-
-    parcellation = data.unflatten(parcellation.T)
+        parcellation = data.unflatten(parcellation.T)
+    else:
+        parcellation = sample_nii
     parcellation.to_filename(output_path)
 
     stderr('%sAlignment time: %ds\n' % (' ' * (indent * 2), time.time() - t0))

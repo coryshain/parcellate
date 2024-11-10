@@ -96,7 +96,7 @@ def sample_color():
 
     return r, g, b
 
-def expand_color(color, base_brightness=0.5):
+def expand_color(color, base_brightness=BASE_BRIGHTNESS):
     out = tuple([
         int(round(x * base_brightness)) for x in color
     ]) + tuple(color)
@@ -122,6 +122,7 @@ def plot_atlases(
         subnetwork_id=1,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
+        clip_positive=True,
         overwrite_atlases=False
 ):
     if isinstance(cfg_paths, str):
@@ -181,6 +182,17 @@ def plot_atlases(
             print('  Copying atlases to temporary directory...')
 
             subprocess.call(['cp'] + copy_paths)
+
+            if clip_positive:
+                for x in os.listdir(tmp_dir_path):
+                    path = os.path.join(tmp_dir_path, x)
+                    if not path.endswith('.nii.gz'):
+                        continue
+                    img = image.load_img(path)
+                    data = image.get_data(img)
+                    data = np.clip(data, 1e-2, None)
+                    img = image.new_img_like(img, data)
+                    img.to_filename(path)
 
             script = _get_surf_ice_script(
                 [cfg_path],
@@ -336,10 +348,10 @@ def _get_surf_ice_script(
         cfg_paths,
         atlas_paths,
         subnetwork_id=1,
-        min_p=0.1,
-        max_p=1.,
-        min_act=0.1,
-        max_act=1.,
+        min_p=None,
+        max_p=None,
+        min_act=None,
+        max_act=None,
         x_res=400,
         y_res=300
 ):
@@ -429,7 +441,7 @@ def _get_surf_ice_script(
                         name=reference_atlas_name + '_sub%d' % ix,
                         path=subatlases[ix],
                         output_path=output_path,
-                        color=expand_color(colors[i]),
+                        color=expand_color(colors[i], base_brightness=BASE_BRIGHTNESS),
                         min=min_p,
                         max=max_p
                     )
@@ -445,7 +457,7 @@ def _get_surf_ice_script(
                             name=atlas_name,
                             path=atlas_paths[parcellation_id]['atlases'][atlas_name],
                             output_path=output_path,
-                            color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
+                            color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
                             min=min_p,
                             max=max_p
                         ),
@@ -474,7 +486,7 @@ def _get_surf_ice_script(
                                 name=atlas_name,
                                 path=atlas_paths[parcellation_id]['atlases'][atlas_name],
                                 output_path=output_path,
-                                color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
+                                color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
                                 min=min_p,
                                 max=max_p
                             ),
@@ -482,7 +494,7 @@ def _get_surf_ice_script(
                                 name=evaluation_atlas_name,
                                 path=atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name],
                                 output_path=output_path,
-                                color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
+                                color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
                                 min=min_act,
                                 max=max_act
                             ),
@@ -510,6 +522,9 @@ def _get_surf_ice_script(
                         gl.azimuthelevation(-90, 0)
                 output_path = None
                 colors = None
+                
+                # gl.overlayadditive(1)
+                
                 for i, atlas_name in enumerate(plot_set):
                     if output_path is None:
                         output_path = get_path(plot_set[atlas_name]['output_path'])
@@ -521,7 +536,8 @@ def _get_surf_ice_script(
     
                     overlay = gl.overlayload(atlas_path)
                     gl.overlaycolor(i + 1, *color)
-                    gl.overlayminmax(i + 1, min_act, max_act)
+                    if min_act is not None and max_act is not None:
+                        gl.overlayminmax(i + 1, min_act, max_act)
                     
                 gl.colorbarvisible(0)
                 gl.orientcubevisible(0)
