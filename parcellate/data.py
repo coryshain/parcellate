@@ -61,24 +61,28 @@ def minmax_normalize_array(arr, axis=None):
     return out
 
 
-def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE):
+def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE, threshold=None):
     if path not in nii_cache:
         img = image.smooth_img(path, fwhm)
         if add_to_cache:
             nii_cache[path] = img
     else:
         img = nii_cache[path]
+    if threshold is not None:
+        data = image.get_data(img)
+        data = binarize_array(data, threshold=threshold)
+        img = image.new_img_like(img, data)
     return img
 
 
-def get_atlas(atlas, fwhm=None):
+def get_atlas(atlas, fwhm=None, threshold=None):
     if isinstance(atlas, str):
         name = atlas
         filename = ATLAS_NAME_TO_FILE.get(name.lower(), None)
         if filename is None:
             raise ValueError('Unrecognized atlas name: %s' % name)
         with pkg_resources.as_file(pkg_resources.files(resources).joinpath(filename)) as path:
-            val = get_nii(path, fwhm=fwhm)
+            val = get_nii(path, fwhm=fwhm, threshold=threshold)
     elif isinstance(atlas, dict):
         keys = list(atlas.keys())
         assert len(keys) == 1, 'If reference_network is provided as a dict, must contain exactly one entry. ' + \
@@ -97,7 +101,7 @@ def get_atlas(atlas, fwhm=None):
         else:
             path = None
     if isinstance(val, str):
-        val = get_nii(val, fwhm=fwhm)
+        val = get_nii(val, fwhm=fwhm, threshold=threshold)
     assert 'Nifti1Image' in type(val).__name__, \
         'Atlas must be either a string path or a Nifti-like image class. Got type %s.' % type(val)
 
@@ -381,6 +385,7 @@ class AtlasData(Data):
             self,
             atlases=None,
             fwhm=None,
+            network_threshold=None,
             resampling_target_nii=None,
             compress_outputs=True
     ):
@@ -413,7 +418,9 @@ class AtlasData(Data):
         for i, reference_atlas in enumerate(atlases):
             if isinstance(reference_atlas, str) and isinstance(atlases, dict):
                 reference_atlas = {reference_atlas: atlases[reference_atlas]}
-            reference_atlas, reference_atlas_path, nii = get_atlas(reference_atlas, fwhm=fwhm)
+            reference_atlas, reference_atlas_path, nii = get_atlas(
+                reference_atlas, fwhm=fwhm, threshold=network_threshold
+            )
             if resampling_target_nii is not None:
                 nii = resample_to(nii, resampling_target_nii)
             if nii_ref_path is None:

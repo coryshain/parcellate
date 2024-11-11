@@ -47,8 +47,12 @@ def sample(
         clustering_kwargs=None,
         compress_outputs=True,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `sample()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(sample_id, str), 'sample_id must be given as a str'
     assert 0 <= data_fraction <= 1, 'data_fraction must be a proportion between 0 and 1'
 
@@ -213,12 +217,15 @@ def align(
         atlas_threshold=None,
         max_subnetworks=None,
         minmax_normalize=True,
-        use_poibin=True,
         eps=1e-3,
         compress_outputs=True,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `align()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(alignment_id, str), 'alignment_id must be given as a str'
     assert isinstance(sample_id, str), 'sample_id must be given as a str'
 
@@ -242,7 +249,6 @@ def align(
             atlas_threshold=atlas_threshold,
             max_subnetworks=max_subnetworks,
             minmax_normalize=minmax_normalize,
-            use_poibin=use_poibin,
             eps=eps,
             compress_outputs=compress_outputs,
             output_dir=output_dir,
@@ -295,8 +301,12 @@ def label(
         eps=1e-3,
         compress_outputs=True,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `label()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(labeling_id, str), 'alignment_id must be given as a str'
 
     t0 = time.time()
@@ -514,11 +524,15 @@ def evaluate(
         evaluation_map=None,
         evaluation_id=None,
         labeling_id=None,
-        use_poibin=True,
+        network_threshold=None,
         compress_outputs=True,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `evaluate()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(evaluation_id, str), 'evaluation_id must be given as a str'
     assert isinstance(labeling_id, str), 'alignment_id must be given as a str'
 
@@ -539,7 +553,7 @@ def evaluate(
             evaluation_map=evaluation_map,
             evaluation_id=evaluation_id,
             labeling_id=labeling_id,
-            use_poibin=use_poibin,
+            network_threshold=network_threshold,
             compress_outputs=compress_outputs,
         )
         kwargs_path = get_path(output_dir, 'kwargs', 'evaluate', evaluation_id)
@@ -602,6 +616,10 @@ def evaluate(
                     if reference_atlas not in candidates:
                         candidates[reference_atlas] = {}
                     candidates[reference_atlas][name] = get_nii(path, add_to_cache=False)
+                    if network_threshold:
+                        data = image.get_data(candidates[reference_atlas][name])
+                        data = binarize_array(data, threshold=network_threshold)
+                        candidates[reference_atlas][name] = image.new_img_like(candidates[reference_atlas][name], data)
                     if resampling_target_nii is None:
                         resampling_target_nii = candidates[reference_atlas][name]
 
@@ -612,8 +630,6 @@ def evaluate(
         compress_outputs=compress_outputs
     )
     reference_atlases = reference_data.atlases
-    print('evaluation_atlases')
-    print(evaluation_atlases)
     evaluation_data = AtlasData(
         atlases=evaluation_atlases,
         resampling_target_nii=resampling_target_nii,
@@ -699,8 +715,12 @@ def aggregate(
         eps=1e-3,
         compress_outputs=None,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `aggregate()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(output_dir, str), 'output_dir must be given as a str'
     assert isinstance(grid_params, dict), 'grid_params must be given as a dict'
 
@@ -832,8 +852,12 @@ def parcellate(
         compress_outputs=True,
         overwrite=False,
         dump_kwargs=True,
-        indent=0
+        indent=0,
+        **kwargs
 ):
+    if len(kwargs):
+        stderr('WARNING: Unused keyword arguments to `parcellate()`: %s\n' % ', '.join(kwargs.keys()))
+
     assert isinstance(output_dir, str), 'output_dir is required, must be given as a str'
     assert isinstance(action_sequence, list), ('action_sequence is required, must be given as a list of dict'
         'and grid_params must be provided as dicts, or neither can be.')
