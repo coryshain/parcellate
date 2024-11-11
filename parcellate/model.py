@@ -33,6 +33,7 @@ def sample(
         mask_path=None,
         detrend=False,
         standardize=True,
+        envelope=False,
         independent_runs=False,
         data_fraction=1,
         tr=2,
@@ -78,6 +79,7 @@ def sample(
             mask_path=mask_path,
             detrend=detrend,
             standardize=standardize,
+            envelope=envelope,
             independent_runs=independent_runs,
             data_fraction=data_fraction,
             tr=tr,
@@ -101,6 +103,7 @@ def sample(
         mask_path=mask_path,
         standardize=standardize,
         detrend=detrend,
+        envelope=envelope,
         tr=tr,
         low_pass=low_pass,
         high_pass=high_pass
@@ -142,18 +145,21 @@ def sample(
             X = (X > np.quantile(X, 0.9)).astype(int)
         else:
             X = timecourse
-        if n_components_pca and not n_components_ica:
-            n_components = min(n_components_pca, t)
+        if n_components_pca:
+            n_components = n_components_pca
+            if n_components == 'auto':
+                n_components = n_networks - 1
+            n_components = min(n_components, t)
             m = PCA(n_components=n_components, svd_solver='full', whiten=True)
             # m = IncrementalPCA(n_components=n_components, whiten=True)
             X = m.fit_transform(X)
         if n_components_ica:
-            if n_components_pca:
-                m = PCA(n_components=min(n_components_pca, t), svd_solver='full', whiten=True)
-                X = m.fit_transform(X)
-            n_components = min(n_components_ica, X.shape[-1])
+            n_components = n_components_ica
+            if n_components == 'auto':
+                n_components = n_networks - 1
+            n_components = min(n_components, X.shape[-1])
             # m = FastICA(n_components=n_components, whiten='unit-variance')
-            m = FastICA(n_components=n_components, whiten='unit-variance', tol=1e-6, max_iter=1000)
+            m = FastICA(n_components=n_components, whiten='unit-variance')
             # m = StabilizedICA(n_components=n_components, n_runs=30, n_jobs=-1)
             # m = DictionaryLearning(n_components=n_components, verbose=True, n_jobs=-1)
             # m = MiniBatchDictionaryLearning(n_components=n_components, verbose=True, batch_size=256, n_jobs=-1)
@@ -563,11 +569,20 @@ def evaluate(
                     evaluation_map[reference_atlas_name] = []
 
     reference_atlas_names = label_kwargs['reference_atlases']
-    if isinstance(reference_atlas_names, str):
-        if reference_atlas_names.lower() in ('all', 'all_reference'):
-            reference_atlas_names = ALL_REFERENCE
+    if reference_atlas_names is None:
+        reference_atlas_names = []
+    elif isinstance(reference_atlas_names, str):
+        reference_atlas_names = [reference_atlas_names]
+    _reference_atlas_names = []
+    for reference_atlas in reference_atlas_names:
+        if isinstance(reference_atlas, str) and reference_atlas.lower() in ('default', 'all', 'all_reference'):
+            reference_atlas = ALL_REFERENCE
+        elif isinstance(reference_atlas, dict):
+            reference_atlas = list(reference_atlas.keys())
         else:
-            reference_atlas_names = [reference_atlas_names]
+            reference_atlas = [reference_atlas]
+        _reference_atlas_names.extend(reference_atlas)
+    reference_atlas_names = _reference_atlas_names
     reference_atlases = []
     candidates = {}
     resampling_target_nii = None
@@ -597,6 +612,8 @@ def evaluate(
         compress_outputs=compress_outputs
     )
     reference_atlases = reference_data.atlases
+    print('evaluation_atlases')
+    print(evaluation_atlases)
     evaluation_data = AtlasData(
         atlases=evaluation_atlases,
         resampling_target_nii=resampling_target_nii,

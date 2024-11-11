@@ -283,6 +283,7 @@ class InputData(Data):
             mask_path=None,
             detrend=False,
             standardize=True,
+            envelope=False,
             tr=2,
             low_pass=None,
             high_pass=None,
@@ -337,6 +338,8 @@ class InputData(Data):
         # Perform any post-processing
         for i, functional in enumerate(functionals):
             functional = self.flatten(functional)
+            if envelope:
+                functional = np.abs(signal.hilbert(functional, axis=-1))
             functional = self.bandpass(functional)  # self.bandpass() is a no-op if no bandpassing parameters are set
             if detrend:
                 functional = detrend_array(functional)
@@ -385,10 +388,16 @@ class AtlasData(Data):
         if atlases is None:
             atlases = []
         elif isinstance(atlases, str):
-            if atlases.lower() in ('all', 'all_reference'):
-                atlases = ALL_REFERENCE
-            else:
-                atlases = [atlases]
+            atlases = [atlases]
+        elif isinstance(atlases, list):
+            _atlases = []
+            for atlas in atlases:
+                if isinstance(atlas, str) and atlas.lower() in ('default', 'all', 'all_reference'):
+                    atlas = ALL_REFERENCE
+                else:
+                    atlas = [atlas]
+                _atlases.extend(atlas)
+            atlases = _atlases
 
         if len(atlases) == 0:
             with pkg_resources.as_file(pkg_resources.files(resources).joinpath(ATLAS_NAME_TO_FILE['lang'])) as path:
@@ -402,7 +411,7 @@ class AtlasData(Data):
         _atlas_names = []
         nii_ref_path = None
         for i, reference_atlas in enumerate(atlases):
-            if isinstance(atlases, dict):
+            if isinstance(reference_atlas, str) and isinstance(atlases, dict):
                 reference_atlas = {reference_atlas: atlases[reference_atlas]}
             reference_atlas, reference_atlas_path, nii = get_atlas(reference_atlas, fwhm=fwhm)
             if resampling_target_nii is not None:

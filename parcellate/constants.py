@@ -31,7 +31,8 @@ ALL_REFERENCE = [
     'SMOT_A',
     'SMOT_B',
     'VIS_C',
-    'VIS_P'
+    'VIS_P',
+    'LANA',
 ]
 PATHS = dict(
     sample=dict(
