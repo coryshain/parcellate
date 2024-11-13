@@ -393,7 +393,10 @@ class AtlasData(Data):
         if atlases is None:
             atlases = []
         elif isinstance(atlases, str):
-            atlases = [atlases]
+            if isinstance(atlases, str) and atlases.lower() in ('default', 'all', 'all_reference'):
+                atlases = ALL_REFERENCE
+            else:
+                atlases = [atlases]
         elif isinstance(atlases, list):
             _atlases = []
             for atlas in atlases:

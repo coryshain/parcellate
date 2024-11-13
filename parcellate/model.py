@@ -40,7 +40,7 @@ def sample(
         low_pass=0.1,
         high_pass=0.01,
         n_samples=100,
-        n_components_pca=None,
+        n_components_pca='auto',
         n_components_ica=None,
         cluster=True,
         use_connectivity_profile=False,
@@ -289,10 +289,11 @@ def align(
 
 def label(
         output_dir,
-        reference_atlases,
+        reference_atlases='default',
         labeling_id=None,
         alignment_id=None,
         sample_id=None,
+        average_first=True,
         scoring_method='corr',
         atlas_threshold=None,
         max_subnetworks=None,
@@ -326,6 +327,7 @@ def label(
             labeling_id=labeling_id,
             alignment_id=alignment_id,
             sample_id=sample_id,
+            average_first=average_first,
             scoring_method=scoring_method,
             atlas_threshold=atlas_threshold,
             max_subnetworks=max_subnetworks,
@@ -339,16 +341,14 @@ def label(
         with open(kwargs_path, 'w') as f:
             yaml.safe_dump(kwargs, f, sort_keys=False)
     output_path = get_path(output_dir, 'output', 'label', labeling_id, compressed=compress_outputs)
-    if alignment_id is not None:
+    if average_first:
+        assert alignment_id is not None, 'alignment_id must be provided if average_first is True'
         input_path = get_path(output_dir, 'output', 'align', alignment_id, compressed=compress_outputs)
-        assert os.path.exists(input_path), 'Sample file %s not found' % input_path
-        average_first = True
-    elif sample_id is not None:
+        assert os.path.exists(input_path), 'Alignment file %s not found' % input_path
+    else:
+        assert sample_id is not None, 'sample_id must be provided if average_first is False'
         input_path = get_path(output_dir, 'output', 'sample', sample_id, compressed=compress_outputs)
         assert os.path.exists(input_path), 'Sample file %s not found' % input_path
-        average_first = False
-    else:
-        raise ValueError('Exactly one of sample_id or alignment_id must be provided')
 
     input_nii = image.smooth_img(input_path, None)
 

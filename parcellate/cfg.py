@@ -63,7 +63,11 @@ def get_action_sequence(
     if action_sequence is None:
         action_sequence = []
     if action_id is None:
-        action_id = list(cfg[action_type].keys())[0]
+        if action_type in cfg:
+            action_id = list(cfg[action_type].keys())[0]
+        else:
+            action_id = 'main'
+            cfg[action_type] = {action_id: {}}  # Add empty entry for main action
     assert action_id in cfg[action_type], 'No entry %s found in %s' % (action_id, action_type)
     kwargs = get_kwargs(cfg, action_type, action_id)
     action = dict(
@@ -81,18 +85,25 @@ def get_action_sequence(
         action_id = cfg[action_type][action_id].get('sample_id', None)
         action_type = 'sample'
     elif action_type == 'label':
-        if 'alignment_id' in cfg[action_type][action_id]:
-            action_id = cfg[action_type][action_id].get('alignment_id', None)
-            action_type = 'align'
-        elif 'sample_id' in cfg[action_type][action_id]:
-            action_id = cfg[action_type][action_id].get('sample_id', None)
-            action_type = 'sample'
-        elif 'align' in cfg:
-            action_type = 'align'
-            action_id = None
-        else:
-            action_type = 'sample'
-            action_id = None
+        average_first = cfg[action_type][action_id].get('average_first', True)
+        if average_first:  # Must be preceded by align step
+            if 'alignment_id' in cfg[action_type][action_id]:
+                action_id = cfg[action_type][action_id].get('alignment_id', None)
+                action_type = 'align'
+            else:
+                action_type = 'align'
+                action_id = None
+                if not 'align' in cfg:
+                    cfg['align'] = {'main': {}}
+        else:  # Must be preceded by sample step
+            if 'sample_id' in cfg[action_type][action_id]:
+                action_id = cfg[action_type][action_id].get('sample_id', None)
+                action_type = 'sample'
+            else:
+                action_type = 'sample'
+                action_id = None
+                if not 'sample' in cfg:
+                    cfg['sample'] = {'main': {}}
     elif action_type == 'evaluate':
         action_id = cfg[action_type][action_id].get('labeling_id', None)
         action_type = 'label'
