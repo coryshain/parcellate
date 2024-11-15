@@ -31,7 +31,7 @@ def sample(
         fwhm=None,
         sample_id=None,
         mask_path=None,
-        detrend=False,
+        detrend=True,
         standardize=True,
         envelope=False,
         independent_runs=False,
