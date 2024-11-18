@@ -1370,7 +1370,15 @@ def plot_grid(
                 _df = df[(df.parcel == atlas_name)]
                 _df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
                           reference_atlas_name]
-                selected = _df[_df.selected][[dimension, perf_col]]
+                selected = _df[_df.selected]
+                missing = False
+                for x in (dimension, perf_col):
+                    if not x in list(selected.columns):
+                        missing = True
+                        break
+                if missing:
+                    continue
+                selected = selected[[dimension, perf_col]]
                 selected = selected.set_index(dimension)[perf_col]
                 __df = _df.pivot(
                     columns=[dimension] + _dimensions_other,
