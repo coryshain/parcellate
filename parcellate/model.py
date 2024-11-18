@@ -154,9 +154,12 @@ def sample(
             if n_components == 'auto':
                 n_components = n_networks - 1
             n_components = min(n_components, t)
-            m = PCA(n_components=n_components, svd_solver='full', whiten=True)
-            # m = IncrementalPCA(n_components=n_components, whiten=True)
-            X = m.fit_transform(X)
+            try:
+                m = PCA(n_components=n_components, svd_solver='full', whiten=True)
+                X = m.fit_transform(X)
+            except np.linalg.LinAlgError:
+                m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
+                X = m.fit_transform(X)
         if n_components_ica:
             n_components = n_components_ica
             if n_components == 'auto':
