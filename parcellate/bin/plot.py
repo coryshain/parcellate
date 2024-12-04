@@ -348,10 +348,10 @@ def _get_surf_ice_script(
         cfg_paths,
         atlas_paths,
         subnetwork_id=1,
-        min_p=None,
-        max_p=None,
-        min_act=None,
-        max_act=None,
+        min_p=0,
+        max_p=1,
+        min_act=0,
+        max_act=4,
         x_res=400,
         y_res=300
 ):
@@ -400,7 +400,7 @@ def _get_surf_ice_script(
                             output_dir, 'parcellation', parcellation_id, 'plots', 'parcellation%s_%%s_%%s.png' % suffix
                         )
 
-                    if i > len(colors):
+                    if i >= len(colors):
                         color = sample_color()
                     else:
                         color = colors[i]
@@ -437,18 +437,38 @@ def _get_surf_ice_script(
                 colors = colors.tolist()
                 plot_set = {}
                 for i, ix in enumerate(sorted(list(subatlases.keys()))):
+                    if i >= len(colors):
+                        color = sample_color()
+                    else:
+                        color = colors[i]
                     plot_set[ix] = dict(
                         name=reference_atlas_name + '_sub%d' % ix,
                         path=subatlases[ix],
                         output_path=output_path,
-                        color=expand_color(colors[i], base_brightness=BASE_BRIGHTNESS),
+                        color=expand_color(color, base_brightness=BASE_BRIGHTNESS),
                         min=min_p,
                         max=max_p
                     )
                 script += '    %s,\n' % pprint.pformat(plot_set)
 
-                # Network vs. reference
                 if atlas_name in atlas_paths[parcellation_id]['atlases']:
+                    # Network
+                    output_path = join(
+                        output_dir, 'parcellation', parcellation_id, 'plots', '%s_%%s_%%s.png' % atlas_name
+                    )
+                    plot_set = dict(
+                        atlas=dict(
+                            name=atlas_name,
+                            path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                            output_path=output_path,
+                            color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
+                            min=min_p,
+                            max=max_p
+                        ),
+                    )
+                    script += '    %s,\n' % pprint.pformat(plot_set)
+
+                    # Network vs. reference
                     output_path = join(
                         output_dir, 'parcellation', parcellation_id, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name
                     )
@@ -1005,7 +1025,10 @@ def _plot_performance(
         if xlim is None:
             xlim = (x.min() - xpad, x.max() + xpad)
         _x = x + (i - (n_colors - 1) / 2) * bar_width
-        color = colors[i]
+        if i >= len(colors):
+            color = sample_color()
+        else:
+            color = colors[i]
         if labels is not None and i < len(labels):
             label = labels[i]
         else:
@@ -1579,7 +1602,10 @@ def _plot_grid(
             x = ticks
         y = _df.mean(axis=0)
         yerr = _df.sem(axis=0)
-        color = colors[i]
+        if i >= len(colors):
+            color = sample_color()
+        else:
+            color = colors[i]
 
         if len(_df) > 1:
             plt.fill_between(x, y-yerr, y+yerr, color=color, alpha=0.2, linewidth=0, zorder=i)

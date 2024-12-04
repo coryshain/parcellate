@@ -714,6 +714,7 @@ def aggregate(
         evaluation_id=None,
         labeling_id=None,
         subnetwork_id=1,
+        exclude='LANA',
         kernel_radius=5,
         eps=1e-3,
         compress_outputs=None,
@@ -764,6 +765,7 @@ def aggregate(
             aggregation_id=aggregation_id,
             labeling_id=labeling_id,
             subnetwork_id=subnetwork_id,
+            exclude=exclude,
             kernel_radius=kernel_radius,
             eps=eps,
             compress_outputs=compress_outputs
@@ -791,7 +793,7 @@ def aggregate(
             _results = pd.read_csv(results_file_path)
             _results['grid_id'] = grid_id
             results.append(_results)
-            score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, eps=eps)
+            score = _get_atlas_score_from_df(_results, subnetwork_id=subnetwork_id, exclude=exclude, eps=eps)
         else:
             raise ValueError(('No available selection criteria for grid_id %s (no evaluation or labeling '
                               'data found). Aggregation failed.' % grid_id))
@@ -1305,8 +1307,15 @@ def _pretty_print_evaluation_row(
     return to_print
 
 
-def _get_atlas_score_from_df(df_scores, subnetwork_id=None, eps=1e-3):
+def _get_atlas_score_from_df(df_scores, subnetwork_id=None, exclude=None, eps=1e-3):
+    if exclude is None:
+        exclude = []
+    if isinstance(exclude, str):
+        exclude = [exclude]
+    exclude = set(exclude)
     reference_atlas_names = df_scores['%sname' % REFERENCE_ATLAS_PREFIX].unique().tolist()
+    if exclude:
+        reference_atlas_names = [x for x in reference_atlas_names if not x in exclude]
     parcel_names = df_scores.parcel
     scores = df_scores['%sscore' % REFERENCE_ATLAS_PREFIX]
     target_parcels = reference_atlas_names
