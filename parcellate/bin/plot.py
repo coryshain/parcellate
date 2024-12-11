@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import numpy as np
 import pandas as pd
@@ -72,7 +73,7 @@ COLORS = np.array([
 RED = COLORS[0]
 BLUE = COLORS[1]
 GREEN = COLORS[2]
-BASE_BRIGHTNESS = 0.1  # Value from 0. (black) to 1. (full color)
+BASE_BRIGHTNESS = 0.  # Value from 0. (black) to 1. (full color)
 
 
 
@@ -122,7 +123,8 @@ def plot_atlases(
         subnetwork_id=1,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
-        clip_positive=True,
+        clip_p=None,
+        clip_act=None,
         overwrite_atlases=False
 ):
     if isinstance(cfg_paths, str):
@@ -183,21 +185,32 @@ def plot_atlases(
 
             subprocess.call(['cp'] + copy_paths)
 
-            if clip_positive:
-                for x in os.listdir(tmp_dir_path):
-                    path = os.path.join(tmp_dir_path, x)
-                    if not path.endswith('.nii.gz'):
-                        continue
-                    img = image.load_img(path)
-                    data = image.get_data(img)
-                    data = np.clip(data, 1e-2, None)
+            min_by_path = {}
+            max_by_path = {}
+            for x in os.listdir(tmp_dir_path):
+                if not x.endswith('.nii.gz'):
+                    continue
+                path = os.path.join(tmp_dir_path, x)
+                img = image.load_img(path)
+                data = image.get_data(img)
+                thresh = None
+                if 'eval' in x:
+                    if clip_act is not None:
+                        thresh = clip_act
+                elif clip_p is not None:
+                    thresh = clip_p
+                if thresh is not None:
+                    data = np.where(np.logical_and(np.isfinite(data), data < thresh), 0, data)
                     img = image.new_img_like(img, data)
                     img.to_filename(path)
+                data = image.get_data(img)
+                min_by_path[path] = np.nanmin(data)
+                max_by_path[path] = np.nanmax(data)
 
             script = _get_surf_ice_script(
                 [cfg_path],
                 atlas_paths=atlas_paths,
-                subnetwork_id=subnetwork_id,
+                subnetwork_id=subnetwork_id
             )
 
             tmp_path = os.path.join(tmp_dir_path, 'PARCELLATE_SURFICE_SCRIPT_TMP.py')
@@ -250,6 +263,10 @@ def plot_atlases(
                     breadcrumb_path = os.path.join(dest_dir, 'plots', 'finished.txt')
                     with open(breadcrumb_path, 'w') as f:
                         f.write('Finished')
+
+            # Reset the cache
+            shutil.rmtree(tmp_dir_path)
+            os.makedirs(tmp_dir_path)
 
 
 def _get_atlas_paths(
@@ -351,10 +368,17 @@ def _get_surf_ice_script(
         min_p=0,
         max_p=1,
         min_act=0,
-        max_act=4,
+        max_act=5,
+        min_by_path=None,
+        max_by_path=None,
         x_res=400,
         y_res=300
 ):
+    if min_by_path is None:
+        min_by_path = {}
+    if max_by_path is None:
+        max_by_path = {}
+
     script = textwrap.dedent('''\
     import sys
     import os
@@ -407,13 +431,14 @@ def _get_surf_ice_script(
 
                     color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
 
+                    path = atlas_paths[parcellation_id]['atlases'][atlas_name]
                     plot_set[reference_atlas_name] = dict(
                         name=atlas_name,
-                        path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                        path=path,
                         output_path=output_path,
                         color=color,
-                        min=min_p,
-                        max=max_p
+                        min=min_by_path.get(path, min_p),
+                        max=max_by_path.get(path, max_p)
                     )
             script += '    %s,\n' % pprint.pformat(plot_set)
 
@@ -441,13 +466,14 @@ def _get_surf_ice_script(
                         color = sample_color()
                     else:
                         color = colors[i]
+                    path = subatlases[ix]
                     plot_set[ix] = dict(
                         name=reference_atlas_name + '_sub%d' % ix,
-                        path=subatlases[ix],
+                        path=path,
                         output_path=output_path,
                         color=expand_color(color, base_brightness=BASE_BRIGHTNESS),
-                        min=min_p,
-                        max=max_p
+                        min=min_by_path.get(path, min_p),
+                        max=max_by_path.get(path, max_p)
                     )
                 script += '    %s,\n' % pprint.pformat(plot_set)
 
@@ -456,14 +482,15 @@ def _get_surf_ice_script(
                     output_path = join(
                         output_dir, 'parcellation', parcellation_id, 'plots', '%s_%%s_%%s.png' % atlas_name
                     )
+                    path = atlas_paths[parcellation_id]['atlases'][atlas_name]
                     plot_set = dict(
                         atlas=dict(
                             name=atlas_name,
-                            path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                            path=path,
                             output_path=output_path,
                             color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
-                            min=min_p,
-                            max=max_p
+                            min=min_by_path.get(path, min_p),
+                            max=max_by_path.get(path, max_p)
                         ),
                     )
                     script += '    %s,\n' % pprint.pformat(plot_set)
@@ -472,22 +499,24 @@ def _get_surf_ice_script(
                     output_path = join(
                         output_dir, 'parcellation', parcellation_id, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name
                     )
+                    path1 = atlas_paths[parcellation_id]['atlases'][atlas_name]
+                    path2 = atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name]
                     plot_set = dict(
                         atlas=dict(
                             name=atlas_name,
-                            path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                            path=path1,
                             output_path=output_path,
                             color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
-                            min=min_p,
-                            max=max_p
+                            min=min_by_path.get(path1, min_p),
+                            max=max_by_path.get(path1, max_p)
                         ),
                         reference=dict(
                             name=reference_atlas_name,
-                            path=atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name],
+                            path=path2,
                             output_path=output_path,
                             color=expand_color(GREEN, base_brightness=BASE_BRIGHTNESS),
-                            min=min_p,
-                            max=max_p
+                            min=min_by_path.get(path2, min_p),
+                            max=max_by_path.get(path2, max_p)
                         ),
                     )
                     script += '    %s,\n' % pprint.pformat(plot_set)
@@ -501,22 +530,24 @@ def _get_surf_ice_script(
                             output_dir, 'parcellation', parcellation_id,
                             'plots', '%s_vs_%s_%%s_%%s.png' % (atlas_name, evaluation_atlas_name)
                         )
+                        path1 = atlas_paths[parcellation_id]['atlases'][atlas_name]
+                        path2 = atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name]
                         plot_set = dict(
                             atlas=dict(
                                 name=atlas_name,
-                                path=atlas_paths[parcellation_id]['atlases'][atlas_name],
+                                path=path1,
                                 output_path=output_path,
                                 color=expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
-                                min=min_p,
-                                max=max_p
+                                min=min_by_path.get(path1, min_p),
+                                max=max_by_path.get(path1, max_p)
                             ),
                             evaluation=dict(
                                 name=evaluation_atlas_name,
-                                path=atlas_paths[parcellation_id]['evaluation_atlases'][evaluation_atlas_name],
+                                path=path2,
                                 output_path=output_path,
                                 color=expand_color(RED, base_brightness=BASE_BRIGHTNESS),
-                                min=min_act,
-                                max=max_act
+                                min=min_by_path.get(path2, min_act),
+                                max=max_by_path.get(path2, max_act)
                             ),
                         )
                         script += '    %s,\n' % pprint.pformat(plot_set)
@@ -525,9 +556,21 @@ def _get_surf_ice_script(
 
     script += textwrap.dedent('''\
 
+    gl.colorbarvisible(0)
+    gl.orientcubevisible(0)
+    gl.cameradistance(0.55)
+    gl.shadername('Default')
+    gl.shaderambientocclusion(0.)
+    gl.shaderadjust('Ambient', 0.15)
+    gl.shaderadjust('Diffuse', 0.5)
+    gl.shaderadjust('Specular', 0.35)
+    gl.shaderadjust('SpecularRough', 1.)
+    gl.shaderadjust('Edge', 1.)
+    gl.shaderlightazimuthelevation(0, 0)
+                
     for plot_set in plot_sets:
         for hemi in ('left', 'right'):
-            for view in ('lateral', 'medial'):
+            for view in ('lateral', 'medial'):                
                 if hemi == 'left':
                     gl.meshload('BrainMesh_ICBM152.lh.mz3')
                     if view == 'lateral':
@@ -543,8 +586,6 @@ def _get_surf_ice_script(
                 output_path = None
                 colors = None
                 
-                # gl.overlayadditive(1)
-                
                 for i, atlas_name in enumerate(plot_set):
                     if output_path is None:
                         output_path = get_path(plot_set[atlas_name]['output_path'])
@@ -556,13 +597,10 @@ def _get_surf_ice_script(
     
                     overlay = gl.overlayload(atlas_path)
                     gl.overlaycolor(i + 1, *color)
+                    gl.overlayextreme(i + 1, 3)
                     if min_act is not None and max_act is not None:
-                        gl.overlayminmax(i + 1, min_act, max_act)
-                    
-                gl.colorbarvisible(0)
-                gl.orientcubevisible(0)
-                gl.cameradistance(0.55)
-
+                        gl.overlayminmax(i + 1, min_act, max_act)                
+                
                 output_dir = os.path.dirname(output_path)
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)

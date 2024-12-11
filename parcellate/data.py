@@ -235,9 +235,10 @@ class Data:
         mask = image.get_data(mask) > 0.5
         self.mask = mask
 
-    def get_bandpass_filter(self, tr, lower=None, upper=None, order=5):
+    def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
         assert lower is not None or upper is not None, 'At least one of the lower (hi-pass) or upper (lo-pass) ' + \
                                                        'parameters must be provided.'
+        assert tr is not None, 'TR must be provided.'
         fs = 1/tr
         Wn = []
         btype = None
@@ -255,10 +256,10 @@ class Data:
 
         return signal.butter(order, Wn, fs=fs, btype=btype)
 
-    def bandpass(self, arr, lower=None, upper=None, order=5, axis=-1):
-        if lower is None and upper is None:
+    def bandpass(self, arr, tr=None, lower=None, upper=None, order=5, axis=-1):
+        if (lower is None and upper is None) or tr is None:
             return arr
-        b, a = self.get_bandpass_filter(lower, upper, order=order)
+        b, a = self.get_bandpass_filter(tr=tr, lower=lower, upper=upper, order=order)
         out = signal.lfilter(b, a, arr, axis=axis)
 
         return out
@@ -344,7 +345,8 @@ class InputData(Data):
             functional = self.flatten(functional)
             if envelope:
                 functional = np.abs(signal.hilbert(functional, axis=-1))
-            functional = self.bandpass(functional)  # self.bandpass() is a no-op if no bandpassing parameters are set
+            # self.bandpass() is a no-op if no bandpassing parameters are set
+            functional = self.bandpass(functional, tr=self.tr, lower=self.high_pass, upper=self.low_pass)
             if detrend:
                 functional = detrend_array(functional)
             if standardize:
