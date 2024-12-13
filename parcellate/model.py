@@ -94,6 +94,7 @@ def sample(
             n_components_pca=n_components_pca,
             n_components_ica=n_components_ica,
             cluster=cluster,
+            use_connectivity_profile=use_connectivity_profile,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
         )
