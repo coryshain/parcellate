@@ -5,11 +5,12 @@ import inspect
 import yaml
 import numpy as np
 import pandas as pd
+from scipy import optimize
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.decomposition import PCA, IncrementalPCA, FastICA, DictionaryLearning, MiniBatchDictionaryLearning
-from sklearn.metrics import jaccard_score
+from sklearn.metrics import mutual_info_score, normalized_mutual_info_score, adjusted_rand_score
 # from sica.base import StabilizedICA
-from nilearn import image
+from nilearn import image, masking, maskers, datasets
 from fast_poibin import PoiBin
 
 from parcellate.cfg import *
@@ -40,10 +41,10 @@ def sample(
         low_pass=0.1,
         high_pass=0.01,
         n_samples=100,
-        n_components_pca='auto',
-        n_components_ica=None,
+        n_components_pca=None,
+        n_components_ica=100,
         cluster=True,
-        use_connectivity_profile=False,
+        use_connectivity_profile=True,
         clustering_kwargs=None,
         compress_outputs=True,
         dump_kwargs=True,
@@ -130,25 +131,10 @@ def sample(
             dtype=np.uint16
         else:
             dtype=np.uint8
-        samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         scores = np.zeros(n_samples)  # Shape: <n_samples>
-        t = timecourse.shape[-1]
-        if use_connectivity_profile:
-            A = standardize_array(timecourse)
-            if data_fraction < 1:
-                v_ = round(v * data_fraction)
-                step = v // v_
-                roi_ix = np.arange(0, v, step)
-                B = A[roi_ix]
-            else:
-                B = A
-            X = np.dot(
-                A,
-                B.T
-            ) / t
-            X = (X > np.quantile(X, 0.9)).astype(int)
-        else:
-            X = timecourse
+
+        X = timecourse
+        t = X.shape[-1]
         if n_components_pca:
             n_components = n_components_pca
             if n_components == 'auto':
@@ -165,12 +151,20 @@ def sample(
             if n_components == 'auto':
                 n_components = n_networks - 1
             n_components = min(n_components, X.shape[-1])
-            # m = FastICA(n_components=n_components, whiten='unit-variance')
             m = FastICA(n_components=n_components, whiten='unit-variance')
-            # m = StabilizedICA(n_components=n_components, n_runs=30, n_jobs=-1)
-            # m = DictionaryLearning(n_components=n_components, verbose=True, n_jobs=-1)
-            # m = MiniBatchDictionaryLearning(n_components=n_components, verbose=True, batch_size=256, n_jobs=-1)
             X = m.fit_transform(X)
+        if use_connectivity_profile:
+            A = standardize_array(X)
+            B_img = input_data.unflatten(X)
+            anat_atlas = datasets.fetch_atlas_basc_multiscale_2015(resolution=444, version='asym')
+            atlas_filename = anat_atlas.maps
+            masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename)
+            B = masker.fit_transform(B_img).T
+            X = np.dot(
+                A,
+                B.T
+            )
+        samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         for j in range(n_samples):
             if len(timecourses) > 1:
                 suffix = ' for run %d/%d' % (i + 1, n_runs)
@@ -184,16 +178,23 @@ def sample(
                 _score = m.inertia_
                 samples[:, j] = _sample
             else:
-                # Should really have been ICA/PCA transformed before getting here
+                X_ = X
+                n_components = n_networks
+                m = FastICA(n_components=n_components, whiten='unit-variance')
+                X = m.fit_transform(X_)
                 # Minmax normalize
-                _sample = np.clip(X[..., :n_networks], 0, np.inf)
+                _sample = X[..., :n_networks]
+                _sample = np.clip(_sample, 0, np.inf)
                 # _sample = (_sample - _sample.min(axis=0, keepdims=True))
                 _sample = _sample / _sample.max(axis=0, keepdims=True)
                 _score = 0
                 if j == 0:
                     samples = _sample
                 else:
-                    samples = samples * j + _sample / (j + 1)
+                    R = np.dot(standardize_array(samples, axis=0).T, standardize_array(_sample, axis=0))
+                    ix_r, ix_c = optimize.linear_sum_assignment(R, maximize=True)
+                    _sample = _sample[:, ix_c]
+                    samples = (samples * j + _sample) / (j + 1)
 
             scores[j] = _score
 
@@ -216,6 +217,9 @@ def align(
         alignment_id=None,
         sample_id=None,
         n_alignments=None,
+        top_k=None,
+        sort_by_mi=False,
+        weight_samples=False,
         scoring_method='corr',
         atlas_threshold=None,
         max_subnetworks=None,
@@ -248,6 +252,9 @@ def align(
             alignment_id=alignment_id,
             sample_id=sample_id,
             n_alignments=n_alignments,
+            top_k=top_k,
+            sort_by_mi=sort_by_mi,
+            weight_samples=weight_samples,
             scoring_method=scoring_method,
             atlas_threshold=atlas_threshold,
             max_subnetworks=max_subnetworks,
@@ -271,20 +278,63 @@ def align(
         samples = data.flatten(sample_nii)
         samples = samples.T  # Shape: <n_samples, v>, values are integer network indices
 
-        # Align to reference
+        # Get sample scores
         sample_scores = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id))['sample_score'].values
-        s_ix = np.argsort(sample_scores)
-        samples = samples[s_ix]
-        parcellation = align_samples(
-            samples,
-            scoring_method=scoring_method,
+        sample_scores = minmax_normalize_array(sample_scores)  # Lower inertia is better
+
+        # Compute sample orders/weights
+        if sort_by_mi:  # By pairwise similarity
+            # Compute similarity between samples
+            # MI = np.zeros((samples.shape[0], samples.shape[0]))
+            # for i in range(samples.shape[0]):
+            #     for j in range(i + 1, samples.shape[0]):
+            #         print(i, j)
+            #         mi = mutual_info_score(samples[i], samples[j])
+            #         # mi = normalized_mutual_info_score(samples[i], samples[j])
+            #         # mi = adjusted_rand_score(samples[i], samples[j])
+            #         MI[i, j] = mi
+            #         MI[j, i] = mi
+            # MI[np.diag_indices(MI.shape[0])] = 1
+            # MI_mean = MI.mean(axis=0)
+            # ix = np.argmax(MI_mean)
+            # mi = MI[ix]
+            mi = np.zeros(samples.shape[0])
+            ix = np.argmin(sample_scores)
+            for i in range(samples.shape[0]):
+                mi[i] = mutual_info_score(samples[ix], samples[i])
+            s_ix = np.argsort(mi)[::-1]
+            samples = samples[s_ix]
+            w = mi[s_ix]
+        else:  # By inertia
+            s_ix = np.argsort(sample_scores)
+            samples = samples[s_ix]
+            sample_scores = sample_scores[s_ix]
+            w = 1 - sample_scores  # Flip to upweight lower inertia
+        w = minmax_normalize_array(w)
+
+        # Align to reference
+        if top_k:
+            samples = samples[:top_k]
+            w = w[:top_k]
+
+        f_kwargs = dict(
+            samples=samples,
+            scoring_method='corr',
             n_alignments=n_alignments,
             indent=indent + 1
         )
+        if weight_samples:
+            f_kwargs['w'] = w
 
-        parcellation = data.unflatten(parcellation.T)
+        parcellation = align_samples(**f_kwargs)
     else:
-        parcellation = sample_nii
+        parcellation = data.flatten(sample_nii).T
+
+    if minmax_normalize:
+        parcellation = minmax_normalize_array(parcellation)
+
+    parcellation = data.unflatten(parcellation.T)
+
     parcellation.to_filename(output_path)
 
     stderr('%sAlignment time: %ds\n' % (' ' * (indent * 2), time.time() - t0))

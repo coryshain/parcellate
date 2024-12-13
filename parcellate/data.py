@@ -125,11 +125,18 @@ def align_samples(
         w=None,
         n_alignments=None,
         shuffle=False,
+        greedy=True,
         indent=None
 ):
+    if w is None:
+        _w = 1
+    else:
+        _w = w[0]
     scoring_method = scoring_method.lower()
     n_samples, v, n_networks = get_shape_from_parcellations(samples)
-    parcellation = (samples[0][None, ...] == np.arange(n_networks)[..., None])
+    reference = (samples[0][None, ...] == np.arange(n_networks)[..., None]).astype(float)
+    parcellation = None
+    C = 0
 
     # Align subsequent samples
     if shuffle:
@@ -142,23 +149,30 @@ def align_samples(
     for i_cum in range(n):
         if indent is not None:
             stderr('\r%sAlignment %d/%d' % (' ' * (indent * 2), i_cum + 1, n))
-        si = i
-        if len(samples.shape) == 2:
-            s = (samples[si][None, ...] == np.arange(n_networks)[..., None])
+
+        if w is not None:
+            _w = w[i]
         else:
-            s = samples[si].T
+            _w = 1
+        if _w == 0:
+            continue
+
+        if len(samples.shape) == 2:
+            s = (samples[i][None, ...] == np.arange(n_networks)[..., None])
+        else:
+            s = samples[i].T
         s = s.astype(float)
         if scoring_method == 'corr':
+            _reference = standardize_array(reference)
             _s = standardize_array(s)
-            reference = standardize_array(parcellation)
             scores = np.dot(
-                reference,
+                _reference,
                 _s.T,
             ) / v
         elif scoring_method == 'avg':
-            reference = minmax_normalize_array(parcellation)
+            _reference = minmax_normalize_array(reference)
             num = np.dot(
-                reference,
+                _reference,
                 s.T
             )
             denom = s.sum(axis=-1, keepdims=True)
@@ -169,18 +183,21 @@ def align_samples(
 
         _, ix_r = optimize.linear_sum_assignment(scores, maximize=True)
         s = s[ix_r]
-        if w is not None:
-            _w = w[si]
+        if parcellation is None:
+            parcellation = s * _w
         else:
-            _w = 1
-        parcellation = (parcellation * i_cum + s) / (i_cum + _w)
-        i_cum += _w
+            parcellation = parcellation + s * _w
+        if greedy:
+            reference = parcellation
+        C += _w
         i += 1
         if i >= n_samples:
             i = 0
             if shuffle:
                 s_ix = np.random.permutation(n_samples)
                 samples = samples[s_ix]
+
+    parcellation = parcellation / C
 
     stderr('\n')
 

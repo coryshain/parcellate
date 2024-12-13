@@ -86,7 +86,7 @@ def get_action_sequence(
         action_type = 'sample'
     elif action_type == 'label':
         average_first = cfg[action_type][action_id].get('average_first', True)
-        if average_first:  # Must be preceded by align step
+        if average_first:
             if 'alignment_id' in cfg[action_type][action_id]:
                 action_id = cfg[action_type][action_id].get('alignment_id', None)
                 action_type = 'align'
