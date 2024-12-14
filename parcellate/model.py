@@ -42,9 +42,10 @@ def sample(
         high_pass=0.01,
         n_samples=100,
         n_components_pca=None,
-        n_components_ica=100,
+        n_components_ica=200,
         cluster=True,
         use_connectivity_profile=True,
+        binarize_connectivity=True,
         clustering_kwargs=None,
         compress_outputs=True,
         dump_kwargs=True,
@@ -165,6 +166,9 @@ def sample(
                 A,
                 B.T
             )
+            if binarize_connectivity:
+                X = (X > np.quantile(X, 0.9, axis=0)).astype(int)
+
         samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         for j in range(n_samples):
             if len(timecourses) > 1:
@@ -515,9 +519,7 @@ def label(
                     __candidate[_v] = p
                 candidate = __candidate
             else:
-                candidate = np.clip(
-                    np.stack(candidate_list, axis=-1).sum(axis=-1), 0, 1
-                )
+                candidate = np.stack(candidate_list, axis=-1).sum(axis=-1)
             if scoring_method == 'corr':
                 r = np.corrcoef(candidate, reference_atlas)[0, 1]
             elif scoring_method == 'avg':
@@ -534,6 +536,9 @@ def label(
             r_prev = r
         stderr('\n')
         indent -= 1
+
+        if not use_poibin:
+            candidate = minmax_normalize_array(candidate)
 
         reference_atlas_scores[j] = r
         candidate_list.insert(0, candidate)
