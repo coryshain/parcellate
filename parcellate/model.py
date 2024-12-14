@@ -59,7 +59,7 @@ def sample(
 
     t0 = time.time()
 
-    stderr('%sSampling (sample_id=%s)\n' % (' ' * (indent * 2), sample_id))
+    stderr('%sSampling (sample_id=%s, n_networks=%d)\n' % (' ' * (indent * 2), sample_id, n_networks))
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
@@ -937,6 +937,7 @@ def parcellate(
     overwrite = get_overwrite(overwrite)
 
     use_grid = aggregation_id is not None
+    grid_optimized = get_action('parcellate', action_sequence)['kwargs'].get('grid_optimized', False)
 
     parcellation_dir = get_path(output_dir, 'subdir', 'parcellate', parcellation_id)
     if not os.path.exists(parcellation_dir):
@@ -946,6 +947,7 @@ def parcellate(
             output_dir=output_dir,
             action_sequence=action_sequence,
             grid_params=grid_params,
+            grid_optimized=grid_optimized,
             eps=eps,
             compress_outputs=compress_outputs,
         )
@@ -1040,12 +1042,12 @@ def parcellate(
             stderr('%sAggregation exists. Skipping. To re-aggregate, run with overwrite=True.\n' %
                   (' ' * (indent * 2)))
         aggregation_output_path = get_path(output_dir, 'output', 'aggregate', aggregation_id)
-        with open(aggregation_output_path, 'r') as f:
-            parcellate_kwargs = yaml.safe_load(f)
 
         # Parcellate
         action = None
         _action_sequence = []
+        with open(aggregation_output_path, 'r') as f:
+            parcellate_kwargs = yaml.safe_load(f)
         parcellate_override_kwargs = get_action('parcellate', action_sequence)
         if parcellate_override_kwargs is not None and 'kwargs' in parcellate_override_kwargs:
             parcellate_override_kwargs = parcellate_override_kwargs['kwargs']
@@ -1053,7 +1055,10 @@ def parcellate(
             if action['type'] == 'aggregate':
                 continue
             action_ = get_action(action['type'], parcellate_kwargs['action_sequence'])
-            kwargs_update = {x: action['kwargs'][x] for x in action['kwargs'] if x not in grid_params}
+            if grid_optimized:
+                kwargs_update = {x: action['kwargs'][x] for x in action['kwargs'] if x not in grid_params}
+            else:
+                kwargs_update = action['kwargs']
             # Change any kwargs that differ between the config and the saved kwargs file
             if action['type'] != 'parcellate':
                 _kwarg_keys = set(inspect.signature(ACTIONS[action['type']]).parameters.keys())
@@ -1065,13 +1070,14 @@ def parcellate(
         assert action is not None and action['type'] == 'parcellate', ('Final action type in '
             'grid searched "action_sequence" must be "parcellate"')
         action_prefix = []
-        for action in action_sequence[:-1]:  # Add dependencies to grid, ignoring last ('parcellate') action
-            if action['type'] != 'evaluate':  # Changing the evaluation doesn't make the aggregation stale
-                action_prefix.append(dict(
-                    type=action['type'],
-                    id=action['id'],
-                    kwargs={}
-                ))
+        if grid_optimized:
+            for action in action_sequence[:-1]:  # Add dependencies to grid, ignoring last ('parcellate') action
+                if action['type'] != 'evaluate':  # Changing the evaluation doesn't make the aggregation stale
+                    action_prefix.append(dict(
+                        type=action['type'],
+                        id=action['id'],
+                        kwargs={}
+                    ))
         parcellate_kwargs['action_sequence'] = action_prefix + parcellate_kwargs['action_sequence']
         parcellate_kwargs['dump_kwargs'] = False  # Don't let recursive call overwrite top-level kwargs file
         parcellate_kwargs['overwrite'] = overwrite
@@ -1177,7 +1183,10 @@ def parcellate(
                         parcellation_kwargs_path = get_path(output_dir, 'output', 'aggregate', aggregation_id)
                         assert os.path.exists(parcellation_kwargs_path), ('Aggregation output %s not found' %
                             parcellation_kwargs_path)
-                        shutil.copy(parcellation_kwargs_path, join(parcellation_dir, 'parcellate_kwargs_final.yml'))
+                        if grid_optimized:
+                            shutil.copy(
+                                parcellation_kwargs_path, join(parcellation_dir, 'parcellate_kwargs_optimized.yml')
+                            )
 
                     if evaluation_id is not None:
                         evaluation_dir = get_path(output_dir, 'subdir', 'evaluate', evaluation_id)

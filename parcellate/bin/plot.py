@@ -1328,6 +1328,7 @@ def plot_grid(
         reference_atlas_names=None,
         evaluation_atlas_names=None,
         baseline_atlas_names=None,
+        plot_selected=False,
         plot_dir=join('plots', 'grid'),
         reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
         dump_data=False
@@ -1431,16 +1432,19 @@ def plot_grid(
                 _df = df[(df.parcel == atlas_name)]
                 _df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
                           reference_atlas_name]
-                selected = _df[_df.selected]
-                missing = False
-                for x in (dimension, perf_col):
-                    if not x in list(selected.columns):
-                        missing = True
-                        break
-                if missing:
-                    continue
-                selected = selected[[dimension, perf_col]]
-                selected = selected.set_index(dimension)[perf_col]
+                if plot_selected:
+                    selected = _df[_df.selected]
+                    missing = False
+                    for x in (dimension, perf_col):
+                        if not x in list(selected.columns):
+                            missing = True
+                            break
+                    if missing:
+                        continue
+                    selected = selected[[dimension, perf_col]]
+                    selected = selected.set_index(dimension)[perf_col]
+                else:
+                    selected = None
                 __df = _df.pivot(
                     columns=[dimension] + _dimensions_other,
                     index='cfg_path',
@@ -1479,8 +1483,11 @@ def plot_grid(
                                            (evaluation_atlas_names is None or x[:-6] in evaluation_atlas_names)]
                 for evaluation_atlas_name in _evaluation_atlas_names:
                     perf_col = '%s_score' % evaluation_atlas_name
-                    selected = _df[_df.selected][[dimension, perf_col]]
-                    selected = selected.set_index(dimension)[perf_col]
+                    if plot_selected:
+                        selected = _df[_df.selected][[dimension, perf_col]]
+                        selected = selected.set_index(dimension)[perf_col]
+                    else:
+                        selected = None
                     __df = _df.pivot(
                         columns=[dimension] + _dimensions_other,
                         index='cfg_path',
@@ -1543,8 +1550,11 @@ def plot_grid(
                         )
 
                     perf_col = '%s_contrast' % evaluation_atlas_name
-                    selected = _df[_df.selected][[dimension, perf_col]]
-                    selected = selected.set_index(dimension)[perf_col]
+                    if plot_selected:
+                        selected = _df[_df.selected][[dimension, perf_col]]
+                        selected = selected.set_index(dimension)[perf_col]
+                    else:
+                        selected = None
                     __df = _df.pivot(
                         columns=[dimension] + _dimensions_other,
                         index='cfg_path',
