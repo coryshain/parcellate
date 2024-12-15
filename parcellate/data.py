@@ -287,11 +287,18 @@ class Data:
 
         return arr
 
-    def unflatten(self, arr):
-        shape = tuple(self.nii_ref_shape) + tuple(arr.shape[1:])
+    def unflatten(self, arr, mask=None, nii_ref=None):
+        if mask is None:
+            mask = self.mask
+        if nii_ref is None:
+            nii_ref = self.nii_ref
+            nii_ref_shape = self.nii_ref_shape
+        else:
+            nii_ref_shape = image.get_data(nii_ref).shape[:3]
+        shape = tuple(nii_ref_shape) + tuple(arr.shape[1:])
         out = np.zeros(shape, dtype=arr.dtype)
-        out[self.mask] = arr
-        nii = image.new_img_like(self.nii_ref, out)
+        out[mask] = arr
+        nii = image.new_img_like(nii_ref, out)
 
         return nii
 

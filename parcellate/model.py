@@ -6,7 +6,7 @@ import yaml
 import numpy as np
 import pandas as pd
 from scipy import optimize
-from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans, SpectralClustering
 from sklearn.decomposition import PCA, IncrementalPCA, FastICA, DictionaryLearning, MiniBatchDictionaryLearning
 from sklearn.metrics import mutual_info_score, normalized_mutual_info_score, adjusted_rand_score
 # from sica.base import StabilizedICA
@@ -41,10 +41,12 @@ def sample(
         low_pass=0.1,
         high_pass=0.01,
         n_samples=100,
-        n_components_pca=None,
-        n_components_ica=200,
+        n_components_pca=200,
+        n_components_ica=None,
         cluster=True,
+        target_affine=(4, 4, 4),
         use_connectivity_profile=True,
+        use_connectivity_to_regions=False,
         binarize_connectivity=True,
         clustering_kwargs=None,
         compress_outputs=True,
@@ -95,7 +97,10 @@ def sample(
             n_components_pca=n_components_pca,
             n_components_ica=n_components_ica,
             cluster=cluster,
+            target_affine=target_affine,
             use_connectivity_profile=use_connectivity_profile,
+            use_connectivity_to_regions=use_connectivity_to_regions,
+            binarize_connectivity=binarize_connectivity,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
         )
@@ -137,17 +142,21 @@ def sample(
 
         X = timecourse
         t = X.shape[-1]
+        if target_affine is not None:
+            X_img = input_data.unflatten(X * 1.00001)  # Hack to force conversion to float
+            X_img = image.resample_img(X_img, target_affine=np.diag(np.array(target_affine)))
+            X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * 1.00001)
+            X_mask = image.resample_img(X_mask, target_affine=np.diag(target_affine))
+            X_mask = image.get_data(X_mask) > 0.5
+            X = image.get_data(X_img)[X_mask]
+            v = X.shape[0]
         if n_components_pca:
             n_components = n_components_pca
             if n_components == 'auto':
                 n_components = n_networks - 1
             n_components = min(n_components, t)
-            try:
-                m = PCA(n_components=n_components, svd_solver='full', whiten=True)
-                X = m.fit_transform(X)
-            except np.linalg.LinAlgError:
-                m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
-                X = m.fit_transform(X)
+            m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
+            X = m.fit_transform(X)
         if n_components_ica:
             n_components = n_components_ica
             if n_components == 'auto':
@@ -157,18 +166,34 @@ def sample(
             X = m.fit_transform(X)
         if use_connectivity_profile:
             A = standardize_array(X)
-            B_img = input_data.unflatten(X)
-            anat_atlas = datasets.fetch_atlas_basc_multiscale_2015(resolution=444, version='asym')
-            atlas_filename = anat_atlas.maps
-            masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename)
-            B = masker.fit_transform(B_img).T
+            if use_connectivity_to_regions:
+                B_img = input_data.unflatten(X)
+                anat_atlas = datasets.fetch_atlas_basc_multiscale_2015(resolution=444, version='asym')
+                atlas_filename = anat_atlas.maps
+                masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename)
+                B = standardize_array(masker.fit_transform(B_img).T)
+            else:
+                B = A
             X = np.dot(
                 A,
                 B.T
             )
             if binarize_connectivity:
                 X = (X > np.quantile(X, 0.9, axis=0)).astype(int)
-
+            if n_components_pca:
+                n_components = n_components_pca
+                if n_components == 'auto':
+                    n_components = n_networks - 1
+                n_components = min(n_components, t)
+                m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
+                X = m.fit_transform(X)
+            if n_components_ica:
+                n_components = n_components_ica
+                if n_components == 'auto':
+                    n_components = n_networks - 1
+                n_components = min(n_components, X.shape[-1])
+                m = FastICA(n_components=n_components, whiten='unit-variance')
+                X = m.fit_transform(X)
         samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         for j in range(n_samples):
             if len(timecourses) > 1:
@@ -179,13 +204,15 @@ def sample(
                 stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
             if cluster:
                 m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
+                # m = SpectralClustering(n_components=n_networks, assign_labels='cluster_qr', verbose=True)
                 _sample = m.fit_predict(X)
                 _score = m.inertia_
                 samples[:, j] = _sample
             else:
                 X_ = X
                 n_components = n_networks
-                m = FastICA(n_components=n_components, whiten='unit-variance')
+                # m = FastICA(n_components=n_components, whiten='unit-variance')
+                m = PCA(n_components=n_components, svd_solver='full', whiten=True)
                 X = m.fit_transform(X_)
                 # Minmax normalize
                 _sample = X[..., :n_networks]
@@ -205,6 +232,12 @@ def sample(
 
         if n_samples > 1:
             stderr('\n')
+
+        if target_affine is not None:
+            samples = input_data.unflatten(samples, mask=X_mask, nii_ref=X_img)
+            samples = image.resample_to_img(samples, input_data.nii_ref, interpolation='nearest')
+            samples = input_data.flatten(samples)
+        print(samples.shape)
         samples_all.append(samples)
         scores_all.append(scores)
     samples = np.concatenate(samples_all, axis=-1)
