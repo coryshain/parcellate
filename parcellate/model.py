@@ -40,14 +40,15 @@ def sample(
         tr=2,
         low_pass=0.1,
         high_pass=0.01,
-        n_samples=100,
+        n_samples=256,
         n_components_pca=200,
         n_components_ica=None,
         cluster=True,
-        target_affine=(4, 4, 4),
+        target_affine=None,
         use_connectivity_profile=True,
-        use_connectivity_to_regions=False,
+        use_connectivity_to_regions=True,
         binarize_connectivity=True,
+        transform_connectivity=True,
         clustering_kwargs=None,
         compress_outputs=True,
         dump_kwargs=True,
@@ -101,6 +102,7 @@ def sample(
             use_connectivity_profile=use_connectivity_profile,
             use_connectivity_to_regions=use_connectivity_to_regions,
             binarize_connectivity=binarize_connectivity,
+            transform_connectivity=transform_connectivity,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
         )
@@ -142,10 +144,12 @@ def sample(
 
         X = timecourse
         t = X.shape[-1]
+        X_img = input_data.nii_ref
+        X_mask = input_data.mask
         if target_affine is not None:
-            X_img = input_data.unflatten(X * 1.00001)  # Hack to force conversion to float
+            X_img = input_data.unflatten(X * (1 + 1e-6))  # Hack to force conversion to float
             X_img = image.resample_img(X_img, target_affine=np.diag(np.array(target_affine)))
-            X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * 1.00001)
+            X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6))
             X_mask = image.resample_img(X_mask, target_affine=np.diag(target_affine))
             X_mask = image.get_data(X_mask) > 0.5
             X = image.get_data(X_img)[X_mask]
@@ -167,10 +171,11 @@ def sample(
         if use_connectivity_profile:
             A = standardize_array(X)
             if use_connectivity_to_regions:
-                B_img = input_data.unflatten(X)
-                anat_atlas = datasets.fetch_atlas_basc_multiscale_2015(resolution=444, version='asym')
+                B_img = input_data.unflatten(X, mask=X_mask, nii_ref=X_img)
+                X_mask_img = image.new_img_like(X_img, X_mask > 0.5)
+                anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
                 atlas_filename = anat_atlas.maps
-                masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename)
+                masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename, mask_img=X_mask_img)
                 B = standardize_array(masker.fit_transform(B_img).T)
             else:
                 B = A
@@ -180,20 +185,21 @@ def sample(
             )
             if binarize_connectivity:
                 X = (X > np.quantile(X, 0.9, axis=0)).astype(int)
-            if n_components_pca:
-                n_components = n_components_pca
-                if n_components == 'auto':
-                    n_components = n_networks - 1
-                n_components = min(n_components, t)
-                m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
-                X = m.fit_transform(X)
-            if n_components_ica:
-                n_components = n_components_ica
-                if n_components == 'auto':
-                    n_components = n_networks - 1
-                n_components = min(n_components, X.shape[-1])
-                m = FastICA(n_components=n_components, whiten='unit-variance')
-                X = m.fit_transform(X)
+            if transform_connectivity:
+                if n_components_pca:
+                    n_components = n_components_pca
+                    if n_components == 'auto':
+                        n_components = n_networks - 1
+                    n_components = min(n_components, t)
+                    m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
+                    X = m.fit_transform(X)
+                if n_components_ica:
+                    n_components = n_components_ica
+                    if n_components == 'auto':
+                        n_components = n_networks - 1
+                    n_components = min(n_components, X.shape[-1])
+                    m = FastICA(n_components=n_components, whiten='unit-variance')
+                    X = m.fit_transform(X)
         samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         for j in range(n_samples):
             if len(timecourses) > 1:
@@ -237,9 +243,9 @@ def sample(
             samples = input_data.unflatten(samples, mask=X_mask, nii_ref=X_img)
             samples = image.resample_to_img(samples, input_data.nii_ref, interpolation='nearest')
             samples = input_data.flatten(samples)
-        print(samples.shape)
         samples_all.append(samples)
         scores_all.append(scores)
+
     samples = np.concatenate(samples_all, axis=-1)
     samples = input_data.unflatten(samples)
     samples.to_filename(output_path)

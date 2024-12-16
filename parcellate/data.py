@@ -221,6 +221,7 @@ def purge_bad_nii(path, compressed=True):
                     os.remove(_path)
 
 def resample_to(nii, template):
+    nii = image.math_img('nii * (1 + 1e-6)', nii=nii)  # Hack to force conversion to float
     return image.resample_to_img(nii, template)
 
 
