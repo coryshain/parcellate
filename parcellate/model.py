@@ -6,8 +6,8 @@ import yaml
 import numpy as np
 import pandas as pd
 from scipy import optimize
-from sklearn.cluster import MiniBatchKMeans, SpectralClustering
-from sklearn.decomposition import PCA, IncrementalPCA, FastICA, DictionaryLearning, MiniBatchDictionaryLearning
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA, FastICA
 from sklearn.metrics import mutual_info_score, normalized_mutual_info_score, adjusted_rand_score
 # from sica.base import StabilizedICA
 from nilearn import image, masking, maskers, datasets
@@ -143,6 +143,7 @@ def sample(
         scores = np.zeros(n_samples)  # Shape: <n_samples>
 
         X = timecourse
+        X = np.concatenate([X for _ in range(20)], axis=1)
         t = X.shape[-1]
         X_img = input_data.nii_ref
         X_mask = input_data.mask
@@ -210,20 +211,17 @@ def sample(
                 stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
             if cluster:
                 m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
-                # m = SpectralClustering(n_components=n_networks, assign_labels='cluster_qr', verbose=True)
                 _sample = m.fit_predict(X)
                 _score = m.inertia_
                 samples[:, j] = _sample
             else:
                 X_ = X
                 n_components = n_networks
-                # m = FastICA(n_components=n_components, whiten='unit-variance')
-                m = PCA(n_components=n_components, svd_solver='full', whiten=True)
+                m = FastICA(n_components=n_components, whiten='unit-variance')
                 X = m.fit_transform(X_)
                 # Minmax normalize
                 _sample = X[..., :n_networks]
                 _sample = np.clip(_sample, 0, np.inf)
-                # _sample = (_sample - _sample.min(axis=0, keepdims=True))
                 _sample = _sample / _sample.max(axis=0, keepdims=True)
                 _score = 0
                 if j == 0:
@@ -981,7 +979,7 @@ def parcellate(
     overwrite = get_overwrite(overwrite)
 
     use_grid = aggregation_id is not None
-    grid_optimized = get_action('parcellate', action_sequence)['kwargs'].get('grid_optimized', False)
+    grid_optimized = get_action('parcellate', action_sequence)['kwargs'].get('grid_optimized', True)
 
     parcellation_dir = get_path(output_dir, 'subdir', 'parcellate', parcellation_id)
     if not os.path.exists(parcellation_dir):
