@@ -121,6 +121,9 @@ def plot_atlases(
         cfg_paths,
         parcellation_ids=None,
         subnetwork_id=1,
+        atlas_names=None,
+        atlas_types=None,
+        dark_atlas=False,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
         clip_p=None,
@@ -210,6 +213,9 @@ def plot_atlases(
             script = _get_surf_ice_script(
                 [cfg_path],
                 atlas_paths=atlas_paths,
+                atlas_names=atlas_names,
+                atlas_types=atlas_types,
+                dark_atlas=dark_atlas,
                 subnetwork_id=subnetwork_id
             )
 
@@ -222,7 +228,11 @@ def plot_atlases(
             subprocess.call([binary_path, '-S', tmp_path])
 
             print('  Stitching plots...')
-            for parcellation_dir in os.listdir(join(tmp_dir_path, 'parcellation')):
+            if os.path.exists(join(tmp_dir_path, 'parcellation')):
+                parcellation_dirs = os.listdir(join(tmp_dir_path, 'parcellation'))
+            else:
+                parcellation_dirs = []
+            for parcellation_dir in parcellation_dirs:
                 if parcellation_ids is None or \
                         parcellation_dir in parcellation_ids or \
                         parcellation_dir == parcellation_ids:
@@ -364,6 +374,9 @@ def update_atlas_paths(
 def _get_surf_ice_script(
         cfg_paths,
         atlas_paths,
+        atlas_names=None,
+        atlas_types=None,
+        dark_atlas=False,
         subnetwork_id=1,
         min_p=0,
         max_p=1,
@@ -374,10 +387,19 @@ def _get_surf_ice_script(
         x_res=400,
         y_res=300
 ):
+    if atlas_types is None:
+        atlas_types = {'full', 'network', 'subnetworks', 'network_vs_reference', 'network_vs_evaluation'}
+    elif isinstance(atlas_types, str):
+        atlas_types = {atlas_types}
+    else:
+        atlas_types = set(atlas_types)
     if min_by_path is None:
         min_by_path = {}
     if max_by_path is None:
         max_by_path = {}
+
+    if not dark_atlas and min_p is None or max_p is None or min_act is None or max_act is None:
+        raise ValueError('min_p, max_p, min_act, and max_act must all be specified when using dark_atlas=False')
 
     script = textwrap.dedent('''\
     import sys
@@ -412,73 +434,52 @@ def _get_surf_ice_script(
                 suffix = ''
 
             # Full parcellation
-            plot_set = {}
-            output_path = None
-            colors = COLORS
-            for i, reference_atlas_name in enumerate(atlas_paths[parcellation_id]['reference_atlases']):
-                atlas_name = reference_atlas_name + suffix
-                if atlas_name in atlas_paths[parcellation_id]['atlases']:
-                    if output_path is None:
-                        output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
-                        output_path = join(
-                            output_dir, 'parcellation', parcellation_id, 'plots', 'parcellation%s_%%s_%%s.png' % suffix
-                        )
-
-                    if i >= len(colors):
-                        color = sample_color()
-                    else:
-                        color = colors[i]
-
-                    color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
-
-                    path = atlas_paths[parcellation_id]['atlases'][atlas_name]
-                    plot_set[reference_atlas_name] = dict(
-                        name=atlas_name,
-                        path=path,
-                        output_path=output_path,
-                        color=color,
-                        min=min_by_path.get(path, min_p),
-                        max=max_by_path.get(path, max_p)
-                    )
-            script += '    %s,\n' % pprint.pformat(plot_set)
-
-            # By network
-            for reference_atlas_name in atlas_paths[parcellation_id]['reference_atlases']:
-                atlas_name = reference_atlas_name + suffix
-                output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
-
-                # Subnetworks
-                output_path = join(
-                    output_dir, 'parcellation', parcellation_id, 'plots',
-                    '%s_subnetworks_%%s_%%s.png' % reference_atlas_name
-                )
-                subatlases = {}
-                for x in atlas_paths[parcellation_id]['atlases']:
-                    if re.sub('_sub\d+$', '_sub', x) == reference_atlas_name + '_sub':
-                        ix = int(re.match(reference_atlas_name + '_sub(\d+)', x).group(1))
-                        subatlases[ix] = atlas_paths[parcellation_id]['atlases'][x]
-                green = np.linspace(0, 255, len(subatlases)).astype(int)
-                colors = np.stack([[255] * len(green), green, [0] * len(green)], axis=1)
-                colors = colors.tolist()
+            if 'full' in atlas_types:
                 plot_set = {}
-                for i, ix in enumerate(sorted(list(subatlases.keys()))):
-                    if i >= len(colors):
-                        color = sample_color()
-                    else:
-                        color = colors[i]
-                    path = subatlases[ix]
-                    plot_set[ix] = dict(
-                        name=reference_atlas_name + '_sub%d' % ix,
-                        path=path,
-                        output_path=output_path,
-                        color=expand_color(color, base_brightness=BASE_BRIGHTNESS),
-                        min=min_by_path.get(path, min_p),
-                        max=max_by_path.get(path, max_p)
-                    )
+                output_path = None
+                colors = COLORS
+                for i, atlas_name in enumerate(atlas_paths[parcellation_id]['atlases']):
+                    if not atlas_name.endswith(suffix) or (not suffix and re.match('.*_sub\d+$', atlas_name)):
+                        continue
+                    reference_atlas_name = atlas_name[:len(atlas_name)-len(suffix)]
+                    if atlas_name in atlas_paths[parcellation_id]['atlases']:
+                        if output_path is None:
+                            output_dir = dirname(
+                                atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name]
+                            )
+                            output_path = join(
+                                output_dir, 'parcellation', parcellation_id,
+                                'plots', 'parcellation%s_%%s_%%s.png' % suffix
+                            )
+
+                        if i >= len(colors):
+                            color = sample_color()
+                        else:
+                            color = colors[i]
+
+                        color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
+
+                        path = atlas_paths[parcellation_id]['atlases'][atlas_name]
+                        plot_set[reference_atlas_name] = dict(
+                            name=atlas_name,
+                            path=path,
+                            output_path=output_path,
+                            color=color,
+                            min=min_by_path.get(path, min_p),
+                            max=max_by_path.get(path, max_p)
+                        )
                 script += '    %s,\n' % pprint.pformat(plot_set)
 
-                if atlas_name in atlas_paths[parcellation_id]['atlases']:
-                    # Network
+            # By network
+            if atlas_names is None:
+                atlas_names = list(atlas_paths[parcellation_id]['reference_atlases'].keys())
+            for atlas_name in atlas_names:
+                reference_atlas_name = atlas_name
+                atlas_name = atlas_name + suffix
+                output_dir = dirname(atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name])
+
+                # Network
+                if 'network' in atlas_types:
                     output_path = join(
                         output_dir, 'parcellation', parcellation_id, 'plots', '%s_%%s_%%s.png' % atlas_name
                     )
@@ -495,9 +496,42 @@ def _get_surf_ice_script(
                     )
                     script += '    %s,\n' % pprint.pformat(plot_set)
 
-                    # Network vs. reference
+                # Subnetworks
+                if 'subnetworks' in atlas_types:
                     output_path = join(
-                        output_dir, 'parcellation', parcellation_id, 'plots', '%s_vs_reference_%%s_%%s.png' % atlas_name
+                        output_dir, 'parcellation', parcellation_id, 'plots',
+                        '%s_subnetworks_%%s_%%s.png' % reference_atlas_name
+                    )
+                    subatlases = {}
+                    for x in atlas_paths[parcellation_id]['atlases']:
+                        if re.sub('_sub\d+$', '_sub', x) == reference_atlas_name + '_sub':
+                            ix = int(re.match(reference_atlas_name + '_sub(\d+)', x).group(1))
+                            subatlases[ix] = atlas_paths[parcellation_id]['atlases'][x]
+                    green = np.linspace(0, 255, len(subatlases)).astype(int)
+                    colors = np.stack([[255] * len(green), green, [0] * len(green)], axis=1)
+                    colors = colors.tolist()
+                    plot_set = {}
+                    for i, ix in enumerate(sorted(list(subatlases.keys()))):
+                        if i >= len(colors):
+                            color = sample_color()
+                        else:
+                            color = colors[i]
+                        path = subatlases[ix]
+                        plot_set[ix] = dict(
+                            name=reference_atlas_name + '_sub%d' % ix,
+                            path=path,
+                            output_path=output_path,
+                            color=expand_color(color, base_brightness=BASE_BRIGHTNESS),
+                            min=min_by_path.get(path, min_p),
+                            max=max_by_path.get(path, max_p)
+                        )
+                    script += '    %s,\n' % pprint.pformat(plot_set)
+
+                # Network vs. reference
+                if 'network_vs_reference' in atlas_types:
+                    output_path = join(
+                        output_dir, 'parcellation', parcellation_id, 'plots',
+                        '%s_vs_reference_%%s_%%s.png' % atlas_name
                     )
                     path1 = atlas_paths[parcellation_id]['atlases'][atlas_name]
                     path2 = atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name]
@@ -521,7 +555,8 @@ def _get_surf_ice_script(
                     )
                     script += '    %s,\n' % pprint.pformat(plot_set)
 
-                    # Network vs. evaluation
+                # Network vs. evaluation
+                if 'network_vs_evaluation' in atlas_types:
                     reference_to_evaluation = atlas_paths[parcellation_id]['reference_to_evaluation']
                     for evaluation_atlas_name in reference_to_evaluation.get(reference_atlas_name, []):
                         if evaluation_atlas_name not in atlas_paths[parcellation_id]['evaluation_atlases']:
@@ -554,6 +589,8 @@ def _get_surf_ice_script(
 
     script += ']\n'
 
+    script += 'dark_atlas = %s\n\n' % dark_atlas
+
     script += textwrap.dedent('''\
 
     gl.colorbarvisible(0)
@@ -561,12 +598,13 @@ def _get_surf_ice_script(
     gl.cameradistance(0.55)
     gl.shadername('Default')
     gl.shaderambientocclusion(0.)
-    gl.shaderadjust('Ambient', 0.15)
-    gl.shaderadjust('Diffuse', 0.5)
-    gl.shaderadjust('Specular', 0.35)
-    gl.shaderadjust('SpecularRough', 1.)
-    gl.shaderadjust('Edge', 1.)
-    gl.shaderlightazimuthelevation(0, 0)
+    if dark_atlas:
+        gl.shaderadjust('Ambient', 0.15)
+        gl.shaderadjust('Diffuse', 0.5)
+        gl.shaderadjust('Specular', 0.35)
+        gl.shaderadjust('SpecularRough', 1.)
+        gl.shaderadjust('Edge', 1.)
+        gl.shaderlightazimuthelevation(0, 0)
                 
     for plot_set in plot_sets:
         for hemi in ('left', 'right'):
@@ -586,7 +624,8 @@ def _get_surf_ice_script(
                 output_path = None
                 colors = None
                 
-                for i, atlas_name in enumerate(plot_set):
+                i = 0
+                for atlas_name in plot_set:
                     if output_path is None:
                         output_path = get_path(plot_set[atlas_name]['output_path'])
                     if colors is None:
@@ -594,12 +633,27 @@ def _get_surf_ice_script(
                     atlas_path = get_path(plot_set[atlas_name]['path'])
                     min_act = plot_set[atlas_name]['min']
                     max_act = plot_set[atlas_name]['max']
-    
-                    overlay = gl.overlayload(atlas_path)
-                    gl.overlaycolor(i + 1, *color)
-                    gl.overlayextreme(i + 1, 3)
-                    if min_act is not None and max_act is not None:
-                        gl.overlayminmax(i + 1, min_act, max_act)                
+
+                    if dark_atlas:
+                        j_range = range(1, 2)
+                    else:
+                        j_range = range(1, 5)
+                    for j in j_range:
+                        overlay = gl.overlayload(atlas_path)
+                        gl.overlaycolor(i + 1, *color)
+                        if dark_atlas:
+                            gl.overlayextreme(i + 1, 3)
+                        else:
+                            _opacity = int(j / 4 * 100)
+                            gl.overlayopacity(i + 1, _opacity)
+                        if min_act is not None and max_act is not None:
+                            if dark_atlas:
+                                _min_act, _max_act = min_act, max_act
+                            else:
+                                _min_act = min_act + (max_act - min_act) * j / 5
+                                _max_act = _min_act
+                            gl.overlayminmax(i + 1, _min_act, _max_act)
+                        i += 1
                 
                 output_dir = os.path.dirname(output_path)
                 if not os.path.exists(output_dir):
@@ -607,6 +661,7 @@ def _get_surf_ice_script(
 
                 plot_path = output_path % (hemi, view)
                 gl.savebmpxy(plot_path, X, Y)
+                gl.overlaycloseall()
     exit()
     ''')
 
@@ -826,7 +881,6 @@ def _get_surf_ice_script_group(
                     gl.overlaycolor(i + 1, *_color)
                     gl.overlayminmax(i + 1, MIN, MAX)
                     
-                gl.overlayadditive(1)
                 gl.colorbarvisible(0)
                 gl.orientcubevisible(0)
                 gl.cameradistance(0.55)
@@ -1787,6 +1841,14 @@ if __name__ == '__main__':
     argparser.add_argument('-T', '--include_thresholds', action='store_true', help=textwrap.dedent('''\
         Include performance when binarizing the atlas at different probability thresholds.'''
     ))
+    argparser.add_argument('--atlas_types', nargs='+', default=None, help=textwrap.dedent('''\
+        Types of atlases to plot if ``atlas`` is in ``plot_type``. Any combination of ``full``, ``network``,
+         ``subnetworks``, ``network_vs_reference``, and ``network_vs_evaluation``. If None, use all available
+         atlas types.'''
+    ))
+    argparser.add_argument('--dark_atlas', action='store_true', help=textwrap.dedent('''\
+        Plot atlases against a dark background brain. Happens to run a lot faster this way.'''
+    ))
     argparser.add_argument('-D', '--dump_data', action='store_true', help=textwrap.dedent('''\
         Save plot data to CSV.'''
     ))
@@ -1811,6 +1873,8 @@ if __name__ == '__main__':
     if not subnetwork_id:
         subnetwork_id = None
     include_thresholds = args.include_thresholds
+    atlas_types = args.atlas_types
+    dark_atlas = args.dark_atlas
     dump_data = args.dump_data
     overwrite_atlases = args.overwrite_atlases
     output_dir = args.output_dir
@@ -1820,8 +1884,11 @@ if __name__ == '__main__':
             cfg_paths,
             parcellation_ids=parcellation_ids,
             subnetwork_id=subnetwork_id,
+            atlas_names=atlas_names,
             reference_atlas_names=reference_atlas_names,
             evaluation_atlas_names=evaluation_atlas_names,
+            atlas_types=atlas_types,
+            dark_atlas=dark_atlas,
             overwrite_atlases=overwrite_atlases
         )
     if plot_type & {'group_atlas', 'all'}:
@@ -1830,7 +1897,7 @@ if __name__ == '__main__':
             parcellation_ids=parcellation_ids,
             atlas_names=atlas_names,
             reference_atlas_names=reference_atlas_names,
-            evaluation_atlas_names=evaluation_atlas_names,
+            evaluation_atlas_names=evaluation_atlas_names
         )
     if plot_type & {'performance', 'all'}:
         plot_performance(
