@@ -228,7 +228,11 @@ def plot_atlases(
             subprocess.call([binary_path, '-S', tmp_path])
 
             print('  Stitching plots...')
-            for parcellation_dir in os.listdir(join(tmp_dir_path, 'parcellation')):
+            if os.path.exists(join(tmp_dir_path, 'parcellation')):
+                parcellation_dirs = os.listdir(join(tmp_dir_path, 'parcellation'))
+            else:
+                parcellation_dirs = []
+            for parcellation_dir in parcellation_dirs:
                 if parcellation_ids is None or \
                         parcellation_dir in parcellation_ids or \
                         parcellation_dir == parcellation_ids:
@@ -877,7 +881,6 @@ def _get_surf_ice_script_group(
                     gl.overlaycolor(i + 1, *_color)
                     gl.overlayminmax(i + 1, MIN, MAX)
                     
-                gl.overlayadditive(1)
                 gl.colorbarvisible(0)
                 gl.orientcubevisible(0)
                 gl.cameradistance(0.55)
