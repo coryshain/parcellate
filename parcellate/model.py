@@ -111,6 +111,8 @@ def sample(
             yaml.safe_dump(kwargs, f, sort_keys=False)
     output_path = get_path(output_dir, 'output', 'sample', sample_id, compressed=compress_outputs)
 
+    t1 = time.time()
+    stderr('%sLoading timecourses' % (' ' * (indent * 2)))
     input_data = InputData(
         functional_paths=functional_paths,
         fwhm=fwhm,
@@ -126,6 +128,7 @@ def sample(
     df = pd.DataFrame([dict(n_trs=input_data.n_trs, n_runs=input_data.n_runs)])
     metadata_path = get_path(output_dir, 'metadata', 'sample', sample_id)
     df.to_csv(metadata_path, index=False)
+    stderr(' (%0.2fs)\n' % (time.time() - t1))
 
     n_runs = input_data.n_runs
     samples_all = []
@@ -143,11 +146,12 @@ def sample(
         scores = np.zeros(n_samples)  # Shape: <n_samples>
 
         X = timecourse
-        X = np.concatenate([X for _ in range(20)], axis=1)
         t = X.shape[-1]
         X_img = input_data.nii_ref
         X_mask = input_data.mask
         if target_affine is not None:
+            stderr('%sSpatial resampling' % (' ' * (indent * 2)))
+            t1 = time.time()
             X_img = input_data.unflatten(X * (1 + 1e-6))  # Hack to force conversion to float
             X_img = image.resample_img(X_img, target_affine=np.diag(np.array(target_affine)))
             X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6))
@@ -155,52 +159,74 @@ def sample(
             X_mask = image.get_data(X_mask) > 0.5
             X = image.get_data(X_img)[X_mask]
             v = X.shape[0]
+            stderr(' (%0.2fs)\n' % (time.time() - t1))
         if n_components_pca:
             n_components = n_components_pca
             if n_components == 'auto':
                 n_components = n_networks - 1
+            stderr('%sPCA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
+            t1 = time.time()
             n_components = min(n_components, t)
             m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
             X = m.fit_transform(X)
+            stderr(' (%0.2fs)\n' % (time.time() - t1))
         if n_components_ica:
             n_components = n_components_ica
             if n_components == 'auto':
                 n_components = n_networks - 1
             n_components = min(n_components, X.shape[-1])
+            stderr('%sICA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
+            t1 = time.time()
             m = FastICA(n_components=n_components, whiten='unit-variance')
             X = m.fit_transform(X)
+            stderr(' (%0.2fs)\n' % (time.time() - t1))
         if use_connectivity_profile:
             A = standardize_array(X)
             if use_connectivity_to_regions:
+                stderr('%sRetrieving connectivity atlas' % (' ' * (indent * 2)))
+                t1 = time.time()
                 B_img = input_data.unflatten(X, mask=X_mask, nii_ref=X_img)
                 X_mask_img = image.new_img_like(X_img, X_mask > 0.5)
                 anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
                 atlas_filename = anat_atlas.maps
                 masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename, mask_img=X_mask_img)
                 B = standardize_array(masker.fit_transform(B_img).T)
+                stderr(' (%0.2fs)\n' % (time.time() - t1))
             else:
                 B = A
+            stderr('%sComputing connectivity matrix' % (' ' * (indent * 2)))
+            t1 = time.time()
             X = np.dot(
                 A,
                 B.T
             )
             if binarize_connectivity:
                 X = (X > np.quantile(X, 0.9, axis=0)).astype(int)
+            stderr(' (%0.2fs)\n' % (time.time() - t1))
             if transform_connectivity:
+                stderr('%sTransforming connectivity matrix\n' % (' ' * (indent * 2)))
                 if n_components_pca:
                     n_components = n_components_pca
                     if n_components == 'auto':
                         n_components = n_networks - 1
+                    stderr('%sPCA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
+                    t1 = time.time()
                     n_components = min(n_components, t)
                     m = PCA(n_components=n_components, svd_solver='auto', whiten=True)
                     X = m.fit_transform(X)
+                    stderr(' (%0.2fs)\n' % (time.time() - t1))
                 if n_components_ica:
                     n_components = n_components_ica
                     if n_components == 'auto':
                         n_components = n_networks - 1
                     n_components = min(n_components, X.shape[-1])
+                    stderr('%sICA transforming (n components = %s)\n' % (' ' * (indent * 2), n_components))
+                    t1 = time.time()
                     m = FastICA(n_components=n_components, whiten='unit-variance')
                     X = m.fit_transform(X)
+                    stderr(' (%0.2fs)\n' % (time.time() - t1))
+        stderr('%sDrawing samples\n' % (' ' * (indent * 2)))
+        indent += 1
         samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
         for j in range(n_samples):
             if len(timecourses) > 1:
@@ -236,6 +262,7 @@ def sample(
 
         if n_samples > 1:
             stderr('\n')
+        indent -= 1
 
         if target_affine is not None:
             samples = input_data.unflatten(samples, mask=X_mask, nii_ref=X_img)
