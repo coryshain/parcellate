@@ -201,7 +201,7 @@ def sample(
                 B.T
             )
             if binarize_connectivity:
-                X = (X > np.quantile(X, 0.9, axis=0)).astype(int)
+                X = (X > np.quantile(X, 0.9)).astype(int)
             stderr(' (%0.2fs)\n' % (time.time() - t1))
             if transform_connectivity:
                 stderr('%sTransforming connectivity matrix\n' % (' ' * (indent * 2)))

@@ -1382,7 +1382,7 @@ def plot_grid(
         reference_atlas_names=None,
         evaluation_atlas_names=None,
         baseline_atlas_names=None,
-        plot_selected=False,
+        plot_selected=True,
         plot_dir=join('plots', 'grid'),
         reference_atlas_name_to_label=REFERENCE_ATLAS_NAME_TO_LABEL,
         dump_data=False
