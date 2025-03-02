@@ -345,7 +345,7 @@ def align(
     sample_nii = data.nii_ref
     if image.get_data(sample_nii).dtype in (np.uint8, np.uint16):
         samples = data.flatten(sample_nii)
-        samples = samples.T  # Shape: <n_samples, v>, values are integer network indices
+        samples = samples.T  # Shape: <n_samples, n_voxels>, values are integer network indices
 
         # Get sample scores
         sample_scores = pd.read_csv(get_path(output_dir, 'evaluation', 'sample', sample_id))['sample_score'].values

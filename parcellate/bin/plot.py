@@ -442,7 +442,8 @@ def _get_surf_ice_script(
                     if not atlas_name.endswith(suffix) or (not suffix and re.match('.*_sub\d+$', atlas_name)):
                         continue
                     reference_atlas_name = atlas_name[:len(atlas_name)-len(suffix)]
-                    if atlas_name in atlas_paths[parcellation_id]['atlases']:
+                    if atlas_name in atlas_paths[parcellation_id]['atlases'] and \
+                            reference_atlas_name in atlas_paths[parcellation_id]['reference_atlases']:
                         if output_path is None:
                             output_dir = dirname(
                                 atlas_paths[parcellation_id]['reference_atlases'][reference_atlas_name]
@@ -1439,13 +1440,20 @@ def plot_grid(
                                 if col not in df:
                                     is_score = col.startswith(EVALUATION_ATLAS_PREFIX) and col.endswith('_score')
                                     is_contrast = col.startswith(EVALUATION_ATLAS_PREFIX) and col.endswith('_contrast')
-                                    if is_score or is_contrast:
+                                    is_n_voxels = col == 'n_voxels'
+                                    if is_score or is_contrast or is_n_voxels:
                                         if is_score:
                                             postfix_len = 6
-                                        else:
+                                        elif is_contrast:
                                             postfix_len = 9
-                                        atlas_name = col[:-postfix_len]
-                                        if evaluation_atlas_names is None or atlas_name in evaluation_atlas_names:
+                                        else:
+                                            postfix_len = 0
+                                        if postfix_len:
+                                            atlas_name = col[:-postfix_len]
+                                        else:
+                                            atlas_name = None
+                                        if evaluation_atlas_names is None or atlas_name in evaluation_atlas_names or \
+                                                col == 'n_voxels':
                                             evaluation_cols.append(col)
                             df_ = df_[evaluation_cols]
                             df_['grid_id'] = grid_id
@@ -1481,6 +1489,54 @@ def plot_grid(
                 for _dimension in [dimension] + _dimensions_other:
                     if _dimension not in df:
                         df[_dimension] = df.grid_id.apply(_get_param_value, args=(_dimension,))
+
+                # N voxels
+                perf_col = 'n_voxels'
+                _df = df[(df.parcel == atlas_name)]
+                _df = _df[_df['%sname' % REFERENCE_ATLAS_PREFIX] == \
+                          reference_atlas_name]
+                if plot_selected:
+                    selected = _df[_df.selected]
+                    missing = False
+                    for x in (dimension, perf_col):
+                        if not x in list(selected.columns):
+                            missing = True
+                            break
+                    if missing:
+                        continue
+                    selected = selected[[dimension, perf_col]]
+                    selected = selected.set_index(dimension)[perf_col]
+                else:
+                    selected = None
+                __df = _df.pivot(
+                    columns=[dimension] + _dimensions_other,
+                    index='cfg_path',
+                    values=perf_col
+                )
+                idx_names = [_rename_grid(x) for x in __df.columns.names]
+                __df.columns = __df.columns.set_names(idx_names)
+
+                fig = _plot_grid(
+                    __df,
+                    _rename_grid(dimension),
+                    labels=labels,
+                    selected=selected,
+                    colors=['m'],
+                    ylabel=_rename_grid(perf_col)
+                )
+
+                if not os.path.exists(plot_dir):
+                    os.makedirs(plot_dir)
+                fig.savefig(
+                    join(plot_dir, '%s_nvoxels_by_%s_grid.png' % (atlas_name, dimension)),
+                    dpi=300
+                )
+                if dump_data:
+                    __df.to_csv(
+                        join(plot_dir, '%s_nvoxels_by_%s_grid.csv' % (atlas_name, dimension)),
+                        index=False
+                    )
+
                 # Similarity to reference
                 perf_col = '%sscore' % REFERENCE_ATLAS_PREFIX
                 _df = df[(df.parcel == atlas_name)]
