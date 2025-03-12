@@ -289,6 +289,7 @@ def align(
         top_k=None,
         sort_by_mi=False,
         weight_samples=False,
+        prealign=False,
         scoring_method='corr',
         atlas_threshold=None,
         max_subnetworks=None,
@@ -324,6 +325,7 @@ def align(
             top_k=top_k,
             sort_by_mi=sort_by_mi,
             weight_samples=weight_samples,
+            prealign=prealign,
             scoring_method=scoring_method,
             atlas_threshold=atlas_threshold,
             max_subnetworks=max_subnetworks,
@@ -390,6 +392,7 @@ def align(
             samples=samples,
             scoring_method='corr',
             n_alignments=n_alignments,
+            prealign=prealign,
             indent=indent + 1
         )
         if weight_samples:

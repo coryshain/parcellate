@@ -126,6 +126,8 @@ def align_samples(
         n_alignments=None,
         shuffle=False,
         greedy=True,
+        prealign=False,
+        reference_parcellation=None,
         indent=None
 ):
     if w is None:
@@ -134,7 +136,10 @@ def align_samples(
         _w = w[0]
     scoring_method = scoring_method.lower()
     n_samples, v, n_networks = get_shape_from_parcellations(samples)
-    reference = (samples[0][None, ...] == np.arange(n_networks)[..., None]).astype(float)
+    if reference_parcellation is None:
+        reference = (samples[0][None, ...] == np.arange(n_networks)[..., None]).astype(float)
+    else:
+        reference = reference_parcellation
     parcellation = None
     C = 0
 
@@ -200,6 +205,19 @@ def align_samples(
     parcellation = parcellation / C
 
     stderr('\n')
+
+    if prealign:
+        parcellation = align_samples(
+            samples,
+            scoring_method=scoring_method,
+            w=w,
+            n_alignments=n_samples,
+            shuffle=False,
+            greedy=False,
+            prealign=False,
+            reference_parcellation=parcellation,
+            indent=indent
+        )
 
     return parcellation
 

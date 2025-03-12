@@ -143,7 +143,7 @@ def plot_atlases(
             break
     assert binary_path, 'No Surf Ice executable found'
 
-    with TemporaryDirectory() as tmp_dir_path:
+    with TemporaryDirectory() as tmp_dir:
         for cfg_path in cfg_paths:
             if not os.path.exists(cfg_path):
                 continue
@@ -179,10 +179,10 @@ def plot_atlases(
                 evaluation_atlas_names=evaluation_atlas_names
             )
 
-            atlas_paths_orig = update_atlas_paths(atlas_paths, tmp_dir_path)
+            atlas_paths_orig = _update_atlas_paths(atlas_paths, tmp_dir)
             if not len(atlas_paths_orig):
                 continue
-            copy_paths = list(atlas_paths_orig) + [tmp_dir_path]
+            copy_paths = list(atlas_paths_orig) + [tmp_dir]
 
             print('  Copying atlases to temporary directory...')
 
@@ -190,10 +190,10 @@ def plot_atlases(
 
             min_by_path = {}
             max_by_path = {}
-            for x in os.listdir(tmp_dir_path):
+            for x in os.listdir(tmp_dir):
                 if not x.endswith('.nii.gz'):
                     continue
-                path = os.path.join(tmp_dir_path, x)
+                path = os.path.join(tmp_dir, x)
                 img = image.load_img(path)
                 data = image.get_data(img)
                 thresh = None
@@ -219,7 +219,7 @@ def plot_atlases(
                 subnetwork_id=subnetwork_id
             )
 
-            tmp_path = os.path.join(tmp_dir_path, 'PARCELLATE_SURFICE_SCRIPT_TMP.py')
+            tmp_path = os.path.join(tmp_dir, 'PARCELLATE_SURFICE_SCRIPT_TMP.py')
             with open(tmp_path, 'w') as f:
                 f.write(script)
 
@@ -228,8 +228,8 @@ def plot_atlases(
             subprocess.call([binary_path, '-S', tmp_path])
 
             print('  Stitching plots...')
-            if os.path.exists(join(tmp_dir_path, 'parcellation')):
-                parcellation_dirs = os.listdir(join(tmp_dir_path, 'parcellation'))
+            if os.path.exists(join(tmp_dir, 'parcellation')):
+                parcellation_dirs = os.listdir(join(tmp_dir, 'parcellation'))
             else:
                 parcellation_dirs = []
             for parcellation_dir in parcellation_dirs:
@@ -237,7 +237,7 @@ def plot_atlases(
                         parcellation_dir in parcellation_ids or \
                         parcellation_dir == parcellation_ids:
                     parcellation_id = parcellation_dir
-                    parcellation_dir = join(tmp_dir_path, 'parcellation', parcellation_id, 'plots')
+                    parcellation_dir = join(tmp_dir, 'parcellation', parcellation_id, 'plots')
                     img_prefixes = set()
                     for img in [x for x in os.listdir(parcellation_dir) if _is_hemi(x)]:
                         img_prefix = '_'.join(img.split('_')[:-2])
@@ -275,8 +275,8 @@ def plot_atlases(
                         f.write('Finished')
 
             # Reset the cache
-            shutil.rmtree(tmp_dir_path)
-            os.makedirs(tmp_dir_path)
+            shutil.rmtree(tmp_dir)
+            os.makedirs(tmp_dir)
 
 
 def _get_atlas_paths(
@@ -350,7 +350,7 @@ def _get_atlas_paths(
     return out
 
 
-def update_atlas_paths(
+def _update_atlas_paths(
         atlas_paths,
         dest_dir,
         memo=None
@@ -361,7 +361,7 @@ def update_atlas_paths(
         if x == 'reference_to_evaluation':
             continue
         if isinstance(atlas_paths[x], dict):
-            update_atlas_paths(atlas_paths[x], dest_dir, memo=memo)
+            _update_atlas_paths(atlas_paths[x], dest_dir, memo=memo)
         else:
             if atlas_paths[x] not in memo:
                 memo.add(atlas_paths[x])
@@ -369,6 +369,117 @@ def update_atlas_paths(
             atlas_paths[x] = new_path
 
     return memo
+
+
+def _get_surf_ice_script_head(
+        x_res=400,
+        y_res=300
+):
+    script = textwrap.dedent('''\
+    import sys
+    import os
+    import gl
+
+    CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
+
+    def get_path(path):
+        if not os.path.isabs(path):
+            path = os.path.join(CWD, os.path.normpath(path))
+        path = os.path.normpath(path)
+
+        return path
+
+    X = %s
+    Y = %s
+
+    plot_sets = [
+    ''' % (x_res, y_res))
+
+    return script
+
+
+def _get_surf_ice_script_tail(
+        dark_atlas=False
+):
+    script = ']\n'
+
+    script += 'dark_atlas = %s\n\n' % dark_atlas
+
+    script += textwrap.dedent('''\
+
+    gl.colorbarvisible(0)
+    gl.orientcubevisible(0)
+    gl.cameradistance(0.55)
+    gl.shadername('Default')
+    gl.shaderambientocclusion(0.)
+    if dark_atlas:
+        gl.shaderadjust('Ambient', 0.15)
+        gl.shaderadjust('Diffuse', 0.5)
+        gl.shaderadjust('Specular', 0.35)
+        gl.shaderadjust('SpecularRough', 1.)
+        gl.shaderadjust('Edge', 1.)
+        gl.shaderlightazimuthelevation(0, 0)
+
+    for plot_set in plot_sets:
+        for hemi in ('left', 'right'):
+            for view in ('lateral', 'medial'):                
+                if hemi == 'left':
+                    gl.meshload('BrainMesh_ICBM152.lh.mz3')
+                    if view == 'lateral':
+                        gl.azimuthelevation(-90, 0)
+                    else:
+                        gl.azimuthelevation(90, 0)
+                else:
+                    gl.meshload('BrainMesh_ICBM152.rh.mz3')
+                    if view == 'lateral':
+                        gl.azimuthelevation(90, 0)
+                    else:
+                        gl.azimuthelevation(-90, 0)
+                output_path = None
+                colors = None
+
+                i = 0
+                for atlas_name in plot_set:
+                    if output_path is None:
+                        output_path = get_path(plot_set[atlas_name]['output_path'])
+                    if colors is None:
+                        color = plot_set[atlas_name]['color']
+                    atlas_path = get_path(plot_set[atlas_name]['path'])
+                    min_act = plot_set[atlas_name]['min']
+                    max_act = plot_set[atlas_name]['max']
+
+                    if dark_atlas:
+                        j_range = range(1, 2)
+                    else:
+                        j_range = range(1, 5)
+                    for j in j_range:
+                        overlay = gl.overlayload(atlas_path)
+                        gl.overlaycolor(i + 1, *color)
+                        if dark_atlas:
+                            gl.overlayextreme(i + 1, 3)
+                        else:
+                            _opacity = int(j / 4 * 100)
+                            gl.overlayopacity(i + 1, _opacity)
+                        if min_act is not None and max_act is not None:
+                            if dark_atlas:
+                                _min_act, _max_act = min_act, max_act
+                            else:
+                                _min_act = min_act + (max_act - min_act) * j / 5
+                                _max_act = _min_act
+                            gl.overlayminmax(i + 1, _min_act, _max_act)
+                        i += 1
+
+                output_dir = os.path.dirname(output_path)
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+
+                plot_path = output_path % (hemi, view)
+                gl.savebmpxy(plot_path, X, Y)
+                gl.overlaycloseall()
+    exit()
+    ''')
+
+    return script
 
 
 def _get_surf_ice_script(
@@ -401,25 +512,7 @@ def _get_surf_ice_script(
     if not dark_atlas and min_p is None or max_p is None or min_act is None or max_act is None:
         raise ValueError('min_p, max_p, min_act, and max_act must all be specified when using dark_atlas=False')
 
-    script = textwrap.dedent('''\
-    import sys
-    import os
-    import gl
-
-    CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
-
-    def get_path(path):
-        if not os.path.isabs(path):
-            path = os.path.join(CWD, os.path.normpath(path))
-        path = os.path.normpath(path)
-
-        return path
-
-    X = %s
-    Y = %s
-
-    plot_sets = [
-    ''' % (x_res, y_res))
+    script = _get_surf_ice_script_head(x_res=x_res, y_res=y_res)
 
     for cfg_path in cfg_paths:
         if not os.path.exists(cfg_path):
@@ -588,83 +681,7 @@ def _get_surf_ice_script(
                         )
                         script += '    %s,\n' % pprint.pformat(plot_set)
 
-    script += ']\n'
-
-    script += 'dark_atlas = %s\n\n' % dark_atlas
-
-    script += textwrap.dedent('''\
-
-    gl.colorbarvisible(0)
-    gl.orientcubevisible(0)
-    gl.cameradistance(0.55)
-    gl.shadername('Default')
-    gl.shaderambientocclusion(0.)
-    if dark_atlas:
-        gl.shaderadjust('Ambient', 0.15)
-        gl.shaderadjust('Diffuse', 0.5)
-        gl.shaderadjust('Specular', 0.35)
-        gl.shaderadjust('SpecularRough', 1.)
-        gl.shaderadjust('Edge', 1.)
-        gl.shaderlightazimuthelevation(0, 0)
-                
-    for plot_set in plot_sets:
-        for hemi in ('left', 'right'):
-            for view in ('lateral', 'medial'):                
-                if hemi == 'left':
-                    gl.meshload('BrainMesh_ICBM152.lh.mz3')
-                    if view == 'lateral':
-                        gl.azimuthelevation(-90, 0)
-                    else:
-                        gl.azimuthelevation(90, 0)
-                else:
-                    gl.meshload('BrainMesh_ICBM152.rh.mz3')
-                    if view == 'lateral':
-                        gl.azimuthelevation(90, 0)
-                    else:
-                        gl.azimuthelevation(-90, 0)
-                output_path = None
-                colors = None
-                
-                i = 0
-                for atlas_name in plot_set:
-                    if output_path is None:
-                        output_path = get_path(plot_set[atlas_name]['output_path'])
-                    if colors is None:
-                        color = plot_set[atlas_name]['color']
-                    atlas_path = get_path(plot_set[atlas_name]['path'])
-                    min_act = plot_set[atlas_name]['min']
-                    max_act = plot_set[atlas_name]['max']
-
-                    if dark_atlas:
-                        j_range = range(1, 2)
-                    else:
-                        j_range = range(1, 5)
-                    for j in j_range:
-                        overlay = gl.overlayload(atlas_path)
-                        gl.overlaycolor(i + 1, *color)
-                        if dark_atlas:
-                            gl.overlayextreme(i + 1, 3)
-                        else:
-                            _opacity = int(j / 4 * 100)
-                            gl.overlayopacity(i + 1, _opacity)
-                        if min_act is not None and max_act is not None:
-                            if dark_atlas:
-                                _min_act, _max_act = min_act, max_act
-                            else:
-                                _min_act = min_act + (max_act - min_act) * j / 5
-                                _max_act = _min_act
-                            gl.overlayminmax(i + 1, _min_act, _max_act)
-                        i += 1
-                
-                output_dir = os.path.dirname(output_path)
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-
-                plot_path = output_path % (hemi, view)
-                gl.savebmpxy(plot_path, X, Y)
-                gl.overlaycloseall()
-    exit()
-    ''')
+    script += _get_surf_ice_script_tail(dark_atlas=dark_atlas)
 
     return script
 
@@ -703,6 +720,7 @@ def _is_hemi(path):
 def plot_group_atlases(
         cfg_paths,
         parcellation_ids=None,
+        dark_atlas=False,
         atlas_names=None,
         reference_atlas_names=None,
         evaluation_atlas_names=None,
@@ -721,8 +739,10 @@ def plot_group_atlases(
             break
     assert binary_path, 'No Surf Ice executable found'
 
-    if not os.path.exists(plot_dir):
-        os.makedirs(plot_dir)
+    output_dir = plot_dir
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     atlases = {}
     atlas_ref = None
@@ -755,144 +775,121 @@ def plot_group_atlases(
                         atlases[parcellation_id][atlas_name] += atlas
     stderr('\n')
 
-    data_dir = join(plot_dir, 'data')
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    with TemporaryDirectory() as tmp_dir:
+        atlas_paths = {}
+        for parcellation_id in atlases:
+            for atlas_name in atlases[parcellation_id]:
+                atlas = atlases[parcellation_id][atlas_name]
+                atlas /= len(cfg_paths)
+                atlas = image.new_img_like(atlas_ref, atlas)
+                output_path = join(tmp_dir, '%s_%s.nii.gz' % (parcellation_id, atlas_name))
+                if parcellation_id not in atlas_paths:
+                    atlas_paths[parcellation_id] = {}
+                atlas_paths[parcellation_id][atlas_name] = output_path
+                atlas.to_filename(output_path)
 
-    atlas_paths = {}
-    for parcellation_id in atlases:
-        for atlas_name in atlases[parcellation_id]:
-            atlas = atlases[parcellation_id][atlas_name]
-            atlas /= len(cfg_paths)
-            atlas = image.new_img_like(atlas_ref, atlas)
-            output_path = join(data_dir, '%s_%s.nii.gz' % (parcellation_id, atlas_name))
-            if parcellation_id not in atlas_paths:
-                atlas_paths[parcellation_id] = {}
-            atlas_paths[parcellation_id][atlas_name] = output_path
-            atlas.to_filename(output_path)
+        script = _get_surf_ice_script_group(
+            atlas_paths,
+            dark_atlas=dark_atlas
+        )
 
-    script = _get_surf_ice_script_group(
-        atlas_paths,
-        plot_dir=plot_dir
-    )
+        print('  Generating subplots...')
 
-    subprocess.call([binary_path, '-S', script])
+        subprocess.call([binary_path, '-S', script])
+
+        print('  Stitching plots...')
+
+        if os.path.exists(join(tmp_dir, 'parcellation')):
+            parcellation_dirs = os.listdir(join(tmp_dir, 'parcellation'))
+        else:
+            parcellation_dirs = []
+        for parcellation_dir in parcellation_dirs:
+            if parcellation_ids is None or \
+                    parcellation_dir in parcellation_ids or \
+                    parcellation_dir == parcellation_ids:
+                parcellation_id = parcellation_dir
+                parcellation_dir = join(tmp_dir, 'parcellation', parcellation_id, 'plots')
+                img_prefixes = set()
+                for img in [x for x in os.listdir(parcellation_dir) if _is_hemi(x)]:
+                    img_prefix = '_'.join(img.split('_')[:-2])
+                    img_prefix = join(parcellation_dir, img_prefix)
+                    img_prefixes.add(img_prefix)
+                for img_prefix in img_prefixes:
+                    imgs = []
+                    img_paths = []
+                    for hemi in ('left', 'right'):
+                        if hemi == 'left':
+                            views = ('lateral', 'medial')
+                        else:
+                            views = ('medial', 'lateral')
+                        for view in views:
+                            img_path = img_prefix + '_%s_%s.png' % (hemi, view)
+                            imgs.append(Image.open(img_path))
+                            img_paths.append(img_path)
+                    widths, heights = zip(*(i.size for i in imgs))
+                    total_width = sum(widths)
+                    max_height = max(heights)
+                    new_im = Image.new('RGB', (total_width, max_height))
+                    x_offset = 0
+                    for im in imgs:
+                        new_im.paste(im, (x_offset, 0))
+                        x_offset += im.size[0]
+                    new_im.save('%s.png' % img_prefix)
+                    for img_path in img_paths:
+                        os.remove(img_path)
+
+                dest_dir = join(output_dir, 'parcellation', parcellation_id)
+                if not os.path.exists(dest_dir):
+                    os.makedirs(dest_dir)
+                subprocess.call(['cp', '-r', parcellation_dir, dest_dir])
+
+        # Reset the cache
+        shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
 
 
 def _get_surf_ice_script_group(
         atlas_paths,
-        plot_dir=join('plots', 'group_atlas')
+        dark_atlas=False,
+        min_p=0,
+        max_p=1,
+        x_res=400,
+        y_res=300
 ):
-    script = textwrap.dedent('''\
-    import sys
-    import os
-    import gl
+    script = _get_surf_ice_script_head(x_res=x_res, y_res=y_res)
 
-    CWD = os.path.normpath(os.path.join('..', '..', '..', os.getcwd()))
-
-    MIN = 0.1
-
-    MAX = 1.
-
-    X = 400
-    Y = 300
-
-    ''')
-
-    input_paths = []
-    output_paths = []
-    colors = []
     for parcellation_id in atlas_paths:
-        _plot_dir = join(plot_dir, parcellation_id)
-        if not os.path.exists(_plot_dir):
-            os.makedirs(_plot_dir)
+        plot_set = {}
         atlas_names = sorted(list(atlas_paths[parcellation_id]))
-        output_path = join(_plot_dir, 'plots', '%s_group_atlas_%%s_%%s.png' % '_'.join(atlas_names))
-        output_paths.append(output_path)
-        _input_paths = []
-        for atlas_name in atlas_names:
-            _input_paths.append(atlas_paths[parcellation_id][atlas_name])
-        input_paths.append(_input_paths)
-        if len(_input_paths) <= 3:
-            _colors = [
-                expand_color(RED, base_brightness=BASE_BRIGHTNESS),
-                expand_color(BLUE, base_brightness=BASE_BRIGHTNESS),
-                expand_color(GREEN, base_brightness=BASE_BRIGHTNESS),
-            ]
-        else:
-            _colors = []
-            for _ in range(len(_input_paths)):
-                color = np.random.randint(0, 256, size=3)
-                color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
-                _colors.append(color)
-        colors.append(_colors)
+        colors = COLORS
+        for i, atlas_name in enumerate(atlas_names):
+            output_dir = dirname(
+                atlas_paths[parcellation_id][atlas_name]
+            )
+            output_path = join(
+                output_dir, 'parcellation', parcellation_id,
+                'plots', 'parcellation%s_%%s_%%s.png' % atlas_name
+            )
+            if i >= len(colors):
+                color = sample_color()
+            else:
+                color = colors[i]
 
-    script += 'input_paths = [\n'
-    for _input_paths in input_paths:
-        script += '    [\n'
-        for _input_path in _input_paths:
-            script += "        '%s',\n" % _input_path
-        script += '    ]\n'
-    script += ']\n\n'
+            color = expand_color(color, base_brightness=BASE_BRIGHTNESS)
 
-    script += 'output_paths = [\n'
-    for output_path in output_paths:
-        script += "    '%s',\n" % output_path
-    script += ']\n\n'
+            path = atlas_paths[parcellation_id][atlas_name]
+            plot_set[atlas_name] = dict(
+                name=atlas_name,
+                path=path,
+                output_path=output_path,
+                color=color,
+                min=min_p,
+                max=max_p
+            )
 
-    script += 'colors = [\n'
-    for _colors in colors:
-        script += '    [\n'
-        for _color in _colors:
-            script += "        %s,\n" % str(_color)
-        script += '    ]\n'
-    script += ']\n\n'
+        script += '    %s,\n' % pprint.pformat(plot_set)
 
-    script += textwrap.dedent('''\
-
-
-    def get_path(path):
-        if not os.path.isabs(path):
-            path = os.path.join(CWD, os.path.normpath(path))
-        path = os.path.normpath(path)
-
-        return path
-
-    for output_path, _input_paths, _colors in zip(output_paths, input_paths, colors):
-        output_path = get_path(output_path)
-
-        for hemi in ('left', 'right'):
-            for view in ('lateral', 'medial'):
-                if hemi == 'left':
-                    gl.meshload('BrainMesh_ICBM152.lh.mz3')
-                    if view == 'lateral':
-                        gl.azimuthelevation(-90, 0)
-                    else:
-                        gl.azimuthelevation(90, 0)
-                else:
-                    gl.meshload('BrainMesh_ICBM152.rh.mz3')
-                    if view == 'lateral':
-                        gl.azimuthelevation(90, 0)
-                    else:
-                        gl.azimuthelevation(-90, 0)
-                        
-                for i, (_input_path, _color) in enumerate(zip(_input_paths, _colors)):
-                    path = get_path(_input_path)
-                    gl.overlayload(_input_path)
-                    gl.overlaycolor(i + 1, *_color)
-                    gl.overlayminmax(i + 1, MIN, MAX)
-                    
-                gl.colorbarvisible(0)
-                gl.orientcubevisible(0)
-                gl.cameradistance(0.55)
-
-                output_dir = os.path.dirname(output_path)
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-
-                plot_path = output_path % (hemi, view)
-                gl.savebmpxy(plot_path, X, Y)
-    ''')
+    script += _get_surf_ice_script_tail(dark_atlas=dark_atlas)
 
     return script
 
@@ -1953,7 +1950,8 @@ if __name__ == '__main__':
             parcellation_ids=parcellation_ids,
             atlas_names=atlas_names,
             reference_atlas_names=reference_atlas_names,
-            evaluation_atlas_names=evaluation_atlas_names
+            evaluation_atlas_names=evaluation_atlas_names,
+            plot_dir=join(output_dir, 'group_atlas'),
         )
     if plot_type & {'performance', 'all'}:
         plot_performance(
