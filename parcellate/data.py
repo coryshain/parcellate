@@ -329,7 +329,7 @@ class InputData(Data):
             fwhm=None,
             resampling_target_nii=None,
             mask_path=None,
-            detrend=False,
+            detrend=True,
             standardize=True,
             envelope=False,
             tr=2,

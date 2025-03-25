@@ -32,6 +32,7 @@ if __name__ == '__main__':
                                                                   'end-training move operation. Ignored unless --storage_dir is used.'))
     argparser.add_argument('-g', '--grid_only', action='store_true', help='Only fit grid search models, do not aggregate or refit')
     argparser.add_argument('-o', '--outdir', default='./', help='Directory in which to place generated batch scripts')
+    argparser.add_argument('--parcellation_id', default='main', help='Parcellation ID to use. Default is "main".')
     args = argparser.parse_args()
 
     paths = args.paths
@@ -52,6 +53,7 @@ if __name__ == '__main__':
     else:
         grid_only = ''
     outdir = args.outdir
+    parcellation_id = args.parcellation_id
 
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -66,7 +68,8 @@ if __name__ == '__main__':
             if exclude:
                 f.write('#SBATCH --exclude=%s\n' % exclude)
             f.write('\n\nset -e\n\n')
-            f.write('python -m parcellate.bin.train %s%s -P\n' % (path, grid_only))
+            f.write('python -m parcellate.bin.train %s%s --parcellation_id %s -P\n' % (
+                path, grid_only, parcellation_id))
             if storage_dir:
                 softlink_dir = get_cfg(path)['output_dir']
                 data_dir = os.path.basename(softlink_dir)
