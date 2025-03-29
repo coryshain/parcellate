@@ -1,15 +1,6 @@
 parcellate package
 ==================
 
-Subpackages
------------
-
-.. toctree::
-   :maxdepth: 4
-
-   parcellate.bin
-   parcellate.resources
-
 Submodules
 ----------
 
@@ -48,14 +39,6 @@ parcellate.util module
 ----------------------
 
 .. automodule:: parcellate.util
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: parcellate
    :members:
    :undoc-members:
    :show-inheritance:

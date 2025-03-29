@@ -1,3 +1,6 @@
+import sys
+os
+
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -10,6 +13,9 @@ project = 'parcellate'
 copyright = '2025, Cory Shain'
 author = 'Cory Shain'
 release = '0.0.0'
+
+
+sys.path.insert(0, os.path.abspath('../../'))
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
