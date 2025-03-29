@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-parcellate documentation
-========================
+parcellate package documentation
+================================
 
 This codebase provides a command-line interface for functional brain parcellation of volumetric
 fMRI data. An analysis is specified with a YAML configuration file (including paths to functional
@@ -20,4 +20,10 @@ the command-line usage (documented in README.md) will be sufficient.
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+
+
+Indices
+=======
+
+* :ref:`genindex`
 
