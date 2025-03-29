@@ -5,6 +5,10 @@ fMRI data. An analysis is specified with a YAML configuration file (including pa
 data and evaluation task maps, if desired), which is passed as input to command-line utilities
 for training and visualization of results. A minimal example is provided here (`example.yml`).
 
+This README provides a quickstart introduction to the command-line interface. Detailed documentation
+is available at
+[https://parcellate.readthedocs.io/en/latest/#](https://parcellate.readthedocs.io/en/latest/#).
+
 ## Installation
 
 Installation is just a matter of setting up an [Anaconda](https://www.anaconda.com/) environment
