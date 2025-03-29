@@ -18,7 +18,6 @@ parcellate.cfg module
 
 .. automodule:: parcellate.cfg
    :members:
-   :undoc-members:
    :show-inheritance:
 
 parcellate.constants module
