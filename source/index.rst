@@ -21,7 +21,7 @@ the command-line usage (documented in README.md) will be sufficient.
    :maxdepth: 2
    :caption: Contents:
 
-    parcellate
+   parcellate
 
 
 Indices
