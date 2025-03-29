@@ -17,6 +17,7 @@ def get_cfg(path):
 
     return cfg
 
+
 def get_kwargs(cfg, action_type, action_id):
     """
     Get the function kwargs for a given action type and action ID
@@ -39,6 +40,7 @@ def get_kwargs(cfg, action_type, action_id):
 def get_grid_params(cfg):
     """
     Get the grid search parameters from the configuration dictionary
+
     :param cfg: ``dict``; configuration dictionary
     :return: ``dict``; grid search parameters
     """

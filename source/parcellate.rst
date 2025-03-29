@@ -1,20 +1,10 @@
 parcellate package
 ==================
 
-Submodules
-----------
-
 parcellate.cfg module
 ---------------------
 
 .. automodule:: parcellate.cfg
-   :members:
-   :show-inheritance:
-
-parcellate.constants module
----------------------------
-
-.. automodule:: parcellate.constants
    :members:
    :undoc-members:
    :show-inheritance:
