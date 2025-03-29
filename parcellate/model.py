@@ -55,6 +55,48 @@ def sample(
         indent=0,
         **kwargs
 ):
+    """
+    Sample parcellations by clustering the voxel timecourses
+
+    :param output_dir: ``str``; Output directory
+    :param functional_paths: ``list``; Paths to functional images
+    :param n_networks: ``int``; Number of networks to sample
+    :param fwhm: ``float`` or ``None``; Full-width at half-maximum for spatial smoothing. If ``None``, no smoothing is
+        applied.
+    :param sample_id: ``str``; Sample ID
+    :param mask_path: ``str`` or ``None``; Path to mask image. If ``None``, a mask will be computed from the first
+        functional image.
+    :param detrend: ``bool``; Whether to detrend the timecourses
+    :param standardize: ``bool``; Whether to standardize the timecourses
+    :param envelope: ``bool``; Whether to use the envelope of the timecourses
+    :param independent_runs: ``bool``; Whether to treat each run as an independent sample
+    :param data_fraction: ``float``; Fraction of data to use. If < 1, randomly subsample the data.
+    :param tr: ``float``; Repetition time
+    :param low_pass: ``float`` or ``None``; Low-pass filter cutoff frequency. If ``None``, no low-pass filtering is
+        applied.
+    :param high_pass: ``float`` or ``None``; High-pass filter cutoff frequency. If ``None``, no high-pass filtering is
+        applied.
+    :param n_samples: ``int``; Number of samples to draw
+    :param n_components_pca: ``int`` or ``str``; Number of components to retain after PCA. If ``'auto'``, no PCA is
+        applied.
+    :param n_components_ica: ``int`` or ``None``; Number of components to retain after ICA. If ``None``, no ICA is
+        applied.
+    :param cluster: ``bool``; Whether to cluster the timecourses
+    :param target_affine: ``list`` or ``None``; Target affine for spatial resampling. If ``None``, no resampling is
+        applied.
+    :param use_connectivity_profile: ``bool``; Whether to use the connectivity profile. If ``False``, the raw
+        timecourses are used.
+    :param use_connectivity_to_regions: ``bool``; Whether to use the connectivity to regions. If ``False``, the
+        voxelwise connectivity is used.
+    :param binarize_connectivity: ``bool``; Whether to binarize the connectivity matrix
+    :param transform_connectivity: ``bool``; Whether to transform the connectivity matrix
+    :param clustering_kwargs: ``dict`` or ``None``; Keyword arguments to pass to the clustering algorithm
+    :param compress_outputs: ``bool``; Whether to compress the output files
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `sample()`: %s\n' % ', '.join(kwargs.keys()))
 
@@ -291,15 +333,32 @@ def align(
         weight_samples=False,
         prealign=False,
         scoring_method='corr',
-        atlas_threshold=None,
-        max_subnetworks=None,
         minmax_normalize=True,
-        eps=1e-3,
         compress_outputs=True,
         dump_kwargs=True,
         indent=0,
         **kwargs
 ):
+    """
+    Align sampled clusterings into a probabilistic parcellation.
+
+    :param output_dir: ``str``; Output directory
+    :param alignment_id: ``str``; Alignment ID
+    :param sample_id: ``str``; Sample ID
+    :param n_alignments: ``int`` or ``None``; Number of alignments to perform. If ``None``, use the number of samples.
+    :param top_k: ``int`` or ``None``; Number of samples to retain. If ``None``, use all samples.
+    :param sort_by_mi: ``bool``; Whether to sort samples by mutual information
+    :param weight_samples: ``bool``; Whether to weight samples by their scores
+    :param prealign: ``bool``; Whether to prealign the samples using an initial alignment pass
+    :param scoring_method: ``str``; Scoring method for alignment
+    :param minmax_normalize: ``bool``; Whether to minmax normalize the aligned networks
+    :param compress_outputs: ``bool``; Whether to compress the output files
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
+
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `align()`: %s\n' % ', '.join(kwargs.keys()))
 
@@ -327,10 +386,7 @@ def align(
             weight_samples=weight_samples,
             prealign=prealign,
             scoring_method=scoring_method,
-            atlas_threshold=atlas_threshold,
-            max_subnetworks=max_subnetworks,
             minmax_normalize=minmax_normalize,
-            eps=eps,
             compress_outputs=compress_outputs,
             output_dir=output_dir,
         )
@@ -430,6 +486,31 @@ def label(
         indent=0,
         **kwargs
 ):
+    """
+    Label the parcellation against reference atlases
+
+    :param output_dir: ``str``; Output directory
+    :param reference_atlases: ``str`` or ``list``; Reference atlases
+    :param labeling_id: ``str``; Labeling ID
+    :param alignment_id: ``str``; Alignment ID
+    :param sample_id: ``str``; Sample ID
+    :param average_first: ``bool``; Whether to average the samples before labeling
+    :param scoring_method: ``str``; Scoring method for labeling
+    :param atlas_threshold: ``float`` or ``None``; Threshold for binarizing the atlas. If ``None``, no binarization is
+        applied.
+    :param max_subnetworks: ``int`` or ``None``; Maximum number of subnetworks to retain. If ``None``, no bound on
+        the number of subnetworks.
+    :param minmax_normalize: ``bool``; Whether to minmax normalize the labeled networks
+    :param use_poibin: ``bool``; Whether to use the Poisson binomial distribution for computing probabilities in
+        composite networks
+    :param eps: ``float``; Epsilon for numerical stability
+    :param compress_outputs: ``bool``; Whether to compress the output files
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
+
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `label()`: %s\n' % ', '.join(kwargs.keys()))
 
@@ -656,6 +737,25 @@ def evaluate(
         indent=0,
         **kwargs
 ):
+    """
+    Evaluate the labeled atlases against task maps (evaluation atlases)
+
+    :param output_dir: ``str``; Output directory
+    :param evaluation_atlases: ``dict`` or ``None``; Map from evaluation atlas names to paths. If ``None``, no
+        evaluation will be run.
+    :param evaluation_map: ``dict`` or ``None``; Map from network names to evaluations to perform. If ``None``,
+        all evaluations will be performed on each network.
+    :param evaluation_id: ``str``; Evaluation ID
+    :param labeling_id: ``str``; Labeling ID
+    :param network_threshold: ``float`` or ``None``; Threshold for binarizing the networks. If ``None``, no
+        binarization is applied.
+    :param compress_outputs: ``bool``; Whether to compress the output files
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
+
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `evaluate()`: %s\n' % ', '.join(kwargs.keys()))
 
@@ -845,6 +945,25 @@ def aggregate(
         indent=0,
         **kwargs
 ):
+    """
+    Aggregate the results of a grid search and select to top setting.
+
+    :param output_dir: ``str``; Output directory
+    :param action_sequence: ``list`` of ``dict``; Action sequence
+    :param grid_params: ``dict``; Grid parameters
+    :param aggregation_id: ``str``; Aggregation ID
+    :param evaluation_id: ``str`` or ``None``; Evaluation ID
+    :param labeling_id: ``str`` or ``None``; Labeling ID
+    :param subnetwork_id: ``int``; Subnetwork ID to use for scoring
+    :param exclude: ``str`` or ``list`` of ``str``; Network(s) to exclude from scoring
+    :param kernel_radius: ``int``; Kernel radius for smoothing the grid
+    :param eps: ``float``; Epsilon for numerical stability
+    :param compress_outputs: ``bool`` or ``None``; Whether to compress the output files
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `aggregate()`: %s\n' % ', '.join(kwargs.keys()))
 
@@ -983,6 +1102,21 @@ def parcellate(
         indent=0,
         **kwargs
 ):
+    """
+    Parcellate the data (run an entire action sequence and/or grid search)
+
+    :param output_dir: ``str``; Output directory
+    :param action_sequence: ``list`` of ``dict``; Action sequence
+    :param grid_params: ``dict`` or ``None``; Grid parameters
+    :param grid_only: ``bool``; Whether to only run the grid search
+    :param eps: ``float``; Epsilon for numerical stability
+    :param compress_outputs: ``bool``; Whether to compress the output files
+    :param overwrite: ``bool`` or ``dict``; Overwrite parameters
+    :param dump_kwargs: ``bool``; Whether to dump the keyword arguments to a YAML file
+    :param indent: ``int``; Indentation level for progress reporting
+    :param kwargs: ``dict``; Unused keyword arguments
+    :return: ``None``
+    """
     if len(kwargs):
         stderr('WARNING: Unused keyword arguments to `parcellate()`: %s\n' % ', '.join(kwargs.keys()))
 

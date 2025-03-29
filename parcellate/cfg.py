@@ -5,12 +5,28 @@ from parcellate.constants import ACTION_VERB_TO_NOUN
 
 
 def get_cfg(path):
+    """
+    Load a YAML configuration file
+
+    :param path: ``str``; path to the YAML configuration file
+    :return: ``dict``; configuration dictionary
+    """
+
     with open(path, 'r') as f:
         cfg = yaml.safe_load(f)
 
     return cfg
 
 def get_kwargs(cfg, action_type, action_id):
+    """
+    Get the function kwargs for a given action type and action ID
+
+    :param cfg: ``dict``; configuration dictionary
+    :param action_type: ``str``; action type
+    :param action_id: ``str``; action ID
+    :return: ``dict``; function kwargs
+    """
+
     if action_id is not None and action_type in cfg:
         kwargs = copy.deepcopy(cfg[action_type][action_id])
         kwargs.update({'%s_id' % ACTION_VERB_TO_NOUN[action_type]: action_id})
@@ -21,6 +37,12 @@ def get_kwargs(cfg, action_type, action_id):
 
 
 def get_grid_params(cfg):
+    """
+    Get the grid search parameters from the configuration dictionary
+    :param cfg: ``dict``; configuration dictionary
+    :return: ``dict``; grid search parameters
+    """
+
     if 'grid' in cfg:
         grid_params = copy.deepcopy(cfg['grid'])
     else:
@@ -36,6 +58,17 @@ def get_val_from_kwargs(
         evaluate_kwargs=None,
         aggregate_kwargs=None
 ):
+    """
+    Get a value from the kwargs of one of the action types
+
+    :param key: ``str``; key to search for
+    :param parcellate_kwargs: ``dict``; parcellate kwargs
+    :param align_kwargs: ``dict``; align kwargs
+    :param evaluate_kwargs: ``dict``; evaluate kwargs
+    :param aggregate_kwargs: ``dict``; aggregate kwargs
+    :return: ``object``; value
+    """
+
     val = None
     kwargs = dict(
         parcellate_kwargs=parcellate_kwargs,
@@ -60,6 +93,16 @@ def get_action_sequence(
         action_id,
         action_sequence=None
 ):
+    """
+    Recursively get the action sequence for a given action type and action ID
+
+    :param cfg: ``dict``; configuration dictionary
+    :param action_type: ``str``; action type
+    :param action_id: ``str``; action ID
+    :param action_sequence: ``list`` of ``dict``; initial value for action sequence
+    :return: ``list`` of ``dict``; action sequence
+    """
+
     if action_sequence is None:
         action_sequence = []
     if action_id is None:

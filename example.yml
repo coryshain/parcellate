@@ -1,0 +1,12 @@
+output_dir: parcellation_results
+
+sample:
+  main:
+    functional_paths:
+    - path/to/func1.nii
+    - path/to/func2.nii
+
+evaluate:
+  main:
+    evaluation_atlases:
+        Lang_S-N: path/to/langloc/tmap.nii

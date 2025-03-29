@@ -37,6 +37,14 @@ ATLAS_NAME_TO_FILE = dict(
 
 
 def standardize_array(arr, axis=-1):
+    """
+    Standardize an array along a given axis.
+
+    :param arr: ``np.ndarray``; array to standardize
+    :param axis: ``int``; axis along which to standardize
+    :return: ``np.ndarray``; standardized array
+    """
+
     out = (arr - arr.mean(axis=axis, keepdims=True)) / arr.std(axis=axis, keepdims=True)
     out = np.where(np.isfinite(out), out, np.zeros_like(out))
 
@@ -44,16 +52,40 @@ def standardize_array(arr, axis=-1):
 
 
 def binarize_array(arr, threshold=0.):
+    """
+    Binarize an array based on a threshold.
+
+    :param arr: ``np.ndarray``; array to binarize
+    :param threshold: ``float``; threshold value
+    :return: ``np.ndarray``; binarized array
+    """
+
     out = (arr > threshold).astype(arr.dtype)
 
     return out
 
 
 def detrend_array(arr, axis=1):
+    """
+    Detrend an array along a given axis.
+
+    :param arr: ``np.ndarray``; array to detrend
+    :param axis: ``int``; axis along which to detrend
+    :return: ``np.ndarray``; detrended array
+    """
+
     return signal.detrend(arr, axis=axis)
 
 
 def minmax_normalize_array(arr, axis=None):
+    """
+    Min-max normalize an array along a given axis.
+
+    :param arr: ``np.ndarray``; array to normalize
+    :param axis: ``int``; axis along which to normalize
+    :return: ``np.ndarray``; normalized array
+    """
+
     out = arr - arr.min(axis=axis, keepdims=True)
     out = out / out.max(axis=axis, keepdims=True)
     out = np.where(np.isfinite(out), out, np.zeros_like(out))
@@ -62,6 +94,18 @@ def minmax_normalize_array(arr, axis=None):
 
 
 def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE, threshold=None):
+    """
+    Load a Nifti image from a path, optionally smoothing and thresholding it.
+
+    :param path: ``str``; path to Nifti image
+    :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
+    :param add_to_cache: ``bool``; whether to add the image to the cache for fast reloading
+    :param nii_cache: ``dict``; cache of Nifti images
+    :param threshold: ``float`` or ``None``; threshold value for binarizing the image. If ``None``, no thresholding is
+        applied.
+    :return: ``nibabel.Nifti1Image``; Nifti image
+    """
+
     if path not in nii_cache:
         img = image.smooth_img(path, fwhm)
         if add_to_cache:
@@ -76,6 +120,17 @@ def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE, threshold=N
 
 
 def get_atlas(atlas, fwhm=None, threshold=None):
+    """
+    Load an atlas from a path or a dictionary containing a path and a value.
+
+    :param atlas: ``str``, ``dict``, or ``tuple``; atlas name to retriev, dictionary containing atlas name and either
+        a path or a value, or tuple containing atlas name and either a path or a value.
+    :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
+    :param threshold: ``float`` or ``None``; threshold value for binarizing the image. If ``None``, no thresholding is
+        applied.
+    :return: ``str``, ``str``, ``nibabel.Nifti1Image``; atlas name, atlas path, atlas Nifti image
+    """
+
     if isinstance(atlas, str):
         name = atlas
         filename = ATLAS_NAME_TO_FILE.get(name.lower(), None)
@@ -109,6 +164,13 @@ def get_atlas(atlas, fwhm=None, threshold=None):
 
 
 def get_shape_from_parcellations(parcellations):
+    """
+    Get the shape of a parcellation array.
+
+    :param parcellations: ``np.ndarray``; parcellation array
+    :return: ``int``, ``int``, ``int``; number of samples, number of voxels, number of networks
+    """
+
     n_samples = parcellations.shape[0]
     v = parcellations.shape[1]
     if len(parcellations.shape) == 2:
@@ -130,6 +192,22 @@ def align_samples(
         reference_parcellation=None,
         indent=None
 ):
+    """
+    Align samples using a given scoring method.
+
+    :param samples: ``np.ndarray``; samples to align.
+    :param scoring_method: ``str``; scoring method to use. Options: 'corr', 'avg'.
+    :param w: ``np.ndarray`` or ``None``; weights for each sample. If ``None``, all samples are weighted equally.
+    :param n_alignments: ``int`` or ``None``; number of alignments to perform. If ``None``, use number of samples.
+    :param shuffle: ``bool``; whether to shuffle the samples before aligning.
+    :param greedy: ``bool``; whether to update the reference parcellation at each alignment.
+    :param prealign: ``bool``; whether to initialize the reference parcellation using an initial alignment pass.
+    :param reference_parcellation: ``np.ndarray`` or ``None``; reference parcellation to use. If ``None``, use the first
+        sample as the reference.
+    :param indent: ``int`` or ``None``; indentation level for printing progress.
+    :return: ``np.ndarray``; aligned parcellation
+    """
+
     if w is None:
         _w = 1
     else:
@@ -223,6 +301,14 @@ def align_samples(
 
 
 def purge_bad_nii(path, compressed=True):
+    """
+    Remove corrupted Nifti files from a directory.
+
+    :param path: ``str``; path to directory containing Nifti files.
+    :param compressed: ``bool``; whether the Nifti files are compressed.
+    :return: ``None``
+    """
+
     if os.path.exists(path):
         suffix = get_suffix(compressed)
         for sub in os.listdir(path):
@@ -239,17 +325,38 @@ def purge_bad_nii(path, compressed=True):
                     os.remove(_path)
 
 def resample_to(nii, template):
+    """
+    Resample a Nifti image to match the shape of a template image.
+
+    :param nii: ``nibabel.Nifti1Image``; Nifti image to resample.
+    :param template: ``nibabel.Nifti1Image``; template image.
+    :return: ``nibabel.Nifti1Image``; resampled Nifti image.
+    """
+
     nii = image.math_img('nii * (1 + 1e-6)', nii=nii)  # Hack to force conversion to float
     return image.resample_to_img(nii, template)
 
 
 class Data:
+    """
+    Class to represent fMRI data for use in the parcellation process.
+    """
+
     def __init__(
             self,
             nii_ref_path,
             fwhm=None,
             resampling_target_nii=None
     ):
+        """
+        Initialize a Data object.
+
+        :param nii_ref_path: ``str``; path to reference Nifti image.
+        :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
+        :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
+            no resampling is applied.
+        """
+
         self.nii_ref_path = nii_ref_path
         self.fwhm = fwhm
         self.nii_ref = get_nii(self.nii_ref_path, fwhm=self.fwhm)
@@ -261,9 +368,22 @@ class Data:
 
     @property
     def v(self):
+        """
+        Get the number of voxels in the mask.
+        :return: ``int``; number of voxels in the mask.
+        """
+
         return self.mask.sum()
 
     def set_mask_from_nii(self, mask_path):
+        """
+        Set the mask from a Nifti image.
+
+        :param mask_path: ``str`` or ``None``; path to mask image. If ``None``, compute the mask from the reference
+            image.
+        :return: ``None``
+        """
+
         if mask_path is None:
             mask = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
         else:
@@ -272,6 +392,18 @@ class Data:
         self.mask = mask
 
     def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
+        """
+        Get a bandpass filter for a given TR and frequency range.
+
+        :param tr: ``float``; repetition time.
+        :param lower: ``float`` or ``None``; lower frequency for high-pass filter. If ``None``, no high-pass filter is
+            applied.
+        :param upper: ``float`` or ``None``; upper frequency for low-pass filter. If ``None``, no low-pass filter is
+            applied.
+        :param order: ``int``; order of the filter.
+        :return: ``tuple``; filter coefficients.
+        """
+
         assert lower is not None or upper is not None, 'At least one of the lower (hi-pass) or upper (lo-pass) ' + \
                                                        'parameters must be provided.'
         assert tr is not None, 'TR must be provided.'
@@ -293,6 +425,20 @@ class Data:
         return signal.butter(order, Wn, fs=fs, btype=btype)
 
     def bandpass(self, arr, tr=None, lower=None, upper=None, order=5, axis=-1):
+        """
+        Apply a bandpass filter to an array.
+
+        :param arr: ``np.ndarray``; array to filter.
+        :param tr: ``float``; repetition time.
+        :param lower: ``float`` or ``None``; lower frequency for high-pass filter. If ``None``, no high-pass filter is
+            applied.
+        :param upper: ``float`` or ``None``; upper frequency for low-pass filter. If ``None``, no low-pass filter is
+            applied.
+        :param order: ``int``; order of the filter.
+        :param axis: ``int``; axis along which to filter.
+        :return: ``np.ndarray``; filtered array.
+        """
+
         if (lower is None and upper is None) or tr is None:
             return arr
         b, a = self.get_bandpass_filter(tr=tr, lower=lower, upper=upper, order=order)
@@ -301,12 +447,29 @@ class Data:
         return out
 
     def flatten(self, nii):
+        """
+        Flatten the three dimensions of a Nifti image into a single first axis representing voxels.
+
+        :param nii: ``nibabel.Nifti1Image``; Nifti image to flatten.
+        :return: ``np.ndarray``; flattened array.
+        """
+
         arr = image.get_data(nii)
         arr = arr[self.mask]
 
         return arr
 
     def unflatten(self, arr, mask=None, nii_ref=None):
+        """
+        Unflatten a flattened array into a Nifti image.
+
+        :param arr: ``np.ndarray``; array to unflatten.
+        :param mask: ``np.ndarray`` or ``None``; mask to use. If ``None``, use the mask from the object.
+        :param nii_ref: ``nibabel.Nifti1Image`` or ``None``; reference Nifti image to use. If ``None``, use the
+            default reference for this instance.
+        :return: ``nibabel.Nifti1Image``; unflattened Nifti image.
+        """
+
         if mask is None:
             mask = self.mask
         if nii_ref is None:
@@ -323,6 +486,10 @@ class Data:
 
 
 class InputData(Data):
+    """
+    Class to represent input data for the parcellation process
+    """
+
     def __init__(
             self,
             functional_paths,
@@ -337,6 +504,25 @@ class InputData(Data):
             high_pass=None,
             compress_outputs=True
     ):
+        """
+        Initialize an InputData object.
+
+        :param functional_paths: ``str`` or ``list``; path or list of paths to functional Nifti images.
+        :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
+        :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
+            no resampling is applied.
+        :param mask_path: ``str`` or ``None``; path to mask image. If ``None``, compute the mask from the reference.
+        :param detrend: ``bool``; whether to detrend the data.
+        :param standardize: ``bool``; whether to standardize the data.
+        :param envelope: ``bool``; whether to use the envelope of the data.
+        :param tr: ``float``; repetition time.
+        :param low_pass: ``float`` or ``None``; lower frequency for high-pass filter. If ``None``, no high-pass filter
+            is applied.
+        :param high_pass: ``float`` or ``None``; upper frequency for low-pass filter. If ``None``, no low-pass filter
+            is applied.
+        :param compress_outputs: ``bool``; whether to compress the outputs.
+        """
+
         if isinstance(functional_paths, str):
             functional_paths = [functional_paths]
         else:
@@ -403,13 +589,37 @@ class InputData(Data):
 
     @property
     def n_trs(self):
+        """
+        Get the number of TRs in the data.
+
+        :return: ``int``; number of TRs in the data.
+        """
+
         return self.timecourses.shape[-1]
 
     @property
     def n_runs(self):
+        """
+        Get the number of runs in the data.
+
+        :return: ``int``; number of runs in the data.
+        """
+
         return len(self.functionals)
 
     def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
+        """
+        Get a bandpass filter for a given TR and frequency range.
+
+        :param tr: ``float``; repetition time.
+        :param lower: ``float`` or ``None``; lower frequency for high-pass filter. If ``None``, no high-pass filter is
+            applied.
+        :param upper: ``float`` or ``None``; upper frequency for low-pass filter. If ``None``, no low-pass filter is
+            applied.
+        :param order: ``int``; order of the filter.
+        :return: ``tuple``; filter coefficients.
+        """
+
         assert lower is not None or upper is not None, 'At least one of the lower (hi-pass) or upper (lo-pass) ' + \
                                                        'parameters must be provided.'
         if tr is None:
@@ -418,6 +628,14 @@ class InputData(Data):
         return super().get_bandpass_filter(tr=tr, lower=lower, upper=upper, order=order)
 
     def save_atlases(self, output_dir, compress_outputs=None):
+        """
+        Save the atlases to a directory.
+
+        :param output_dir: ``str``; path to output directory.
+        :param compress_outputs: ``bool``; whether to compress the outputs.
+        :return: ``None``
+        """
+
         if compress_outputs is None:
             compress_outputs = self.compress_outputs
         suffix = get_suffix(compress_outputs)
@@ -426,6 +644,10 @@ class InputData(Data):
 
 
 class AtlasData(Data):
+    """
+    Class to represent reference or evaluation atlas data for the parcellation process
+    """
+
     def __init__(
             self,
             atlases=None,
@@ -434,6 +656,18 @@ class AtlasData(Data):
             resampling_target_nii=None,
             compress_outputs=True
     ):
+        """
+        Initialize an AtlasData object.
+
+        :param atlases: ``str``, ``list``, or ``dict``; atlas name or list of atlas names to retrieve, or dictionary
+            containing atlas names and either paths or values.
+        :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
+        :param network_threshold: ``float`` or ``None``; threshold value for binarizing the image. If ``None``, no
+            thresholding is applied.
+        :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
+            no resampling is applied.
+        :param compress_outputs: ``bool``; whether to compress the outputs.
+        """
 
         if atlases is None:
             atlases = []
@@ -492,6 +726,15 @@ class AtlasData(Data):
         self.compress_outputs = compress_outputs
 
     def save_atlases(self, output_dir, prefix='', compress_outputs=None):
+        """
+        Save the atlases to a directory.
+
+        :param output_dir: ``str``; path to output directory.
+        :param prefix: ``str``; prefix to use for the output files.
+        :param compress_outputs: ``bool``; whether to compress the outputs.
+        :return: ``None``
+        """
+
         if compress_outputs is None:
             compress_outputs = self.compress_outputs
         suffix = get_suffix(compress_outputs)

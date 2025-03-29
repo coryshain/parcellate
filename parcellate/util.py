@@ -7,11 +7,25 @@ from parcellate.constants import *
 
 
 def stderr(s):
+    """
+    Write to stderr
+
+    :param s: ``str``; string to write to stderr
+    :return: ``None``
+    """
+
     sys.stderr.write(s)
     sys.stderr.flush()
 
 
 def get_iterator_from_grid_params(grid_params):
+    """
+    Get an iterator from the grid search parameters
+
+    :param grid_params: ``dict``; grid search parameters
+    :return: ``generator``; iterator
+    """
+
     _grid_params = {}
     if grid_params:
         for grid_param in grid_params:
@@ -29,6 +43,13 @@ def get_iterator_from_grid_params(grid_params):
         yield row
 
 def get_grid_array_from_grid_params(grid_params):
+    """
+    Get a multidimensional array of values from the grid search parameters
+
+    :param grid_params: ``dict``; grid search parameters
+    :return: ``np.ndarray``; grid array
+    """
+
     vals = {}
     if grid_params:
         for grid_param in grid_params:
@@ -40,6 +61,13 @@ def get_grid_array_from_grid_params(grid_params):
 
 
 def get_grid_param_value_list(vals):
+    """
+    Get a list of values from a grid search parameter
+
+    :param vals: ``list``; values
+    :return: ``list``; values
+    """
+
     _vals = []
     for val in vals:
         if isinstance(val, list):
@@ -59,12 +87,27 @@ def get_grid_param_value_list(vals):
 
 
 def get_grid_id(grid_setting):
+    """
+    Get a string ID from a specific grid search setting
+
+    :param grid_setting: ``dict``; grid search setting
+    :return: ``str``; grid ID
+    """
+
     grid_id = '_'.join(['%s%s' % (x, grid_setting[x]) for x in grid_setting])
 
     return grid_id
 
 
 def smooth(arr, kernel_radius=3):
+    """
+    Smooth an array with a linear kernel
+
+    :param arr: ``np.ndarray``; array to smooth
+    :param kernel_radius: ``int``; kernel radius
+    :return: ``np.ndarray``; smoothed array
+    """
+
     out = np.zeros_like(arr)
     if kernel_radius > 1:
         indices = [list(range(x)) for x in arr.shape]
@@ -75,6 +118,13 @@ def smooth(arr, kernel_radius=3):
 
 
 def candidate_name_sort_key(candidate_name):
+    """
+    Get a sort key for a candidate name
+
+    :param candidate_name: ``str``; candidate name
+    :return: ``int``; sort key
+    """
+
     trailing_digits = TRAILING_DIGITS.match(candidate_name).group(1)
     if trailing_digits:
         return int(trailing_digits)
@@ -82,24 +132,52 @@ def candidate_name_sort_key(candidate_name):
 
 
 def join(*args):
+    """
+    Join paths
+
+    :param args: ``list`` of ``str``; paths
+    :return: ``str``; joined path
+    """
+
     args = [os.path.normpath(x) for x in args]
 
     return os.path.normpath(os.path.join(*args))
 
 
 def basename(path):
+    """
+    Get the basename of a path
+
+    :param path: ``str``; path
+    :return: ``str``; basename
+    """
+
     path = os.path.normpath(path)
 
     return os.path.basename(path)
 
 
 def dirname(path):
+    """
+    Get the dirname of a path
+
+    :param path: ``str``; path
+    :return: ``str``; dirname
+    """
+
     path = os.path.normpath(path)
 
     return os.path.dirname(path)
 
 
 def get_suffix(compressed):
+    """
+    Get the suffix for a NIFTI file
+
+    :param compressed: ``bool``; whether the file is compressed
+    :return: ``str``; suffix
+    """
+
     suffix = '.nii'
     if compressed:
         suffix += '.gz'
@@ -107,6 +185,17 @@ def get_suffix(compressed):
 
 
 def get_path(output_dir, path_type, action_type, action_id, compressed=True):
+    """
+    Get a path for the output of a given action type and action ID
+
+    :param output_dir: ``str``; output directory
+    :param path_type: ``str``; path type
+    :param action_type: ``str``; action type
+    :param action_id: ``str``; action ID
+    :param compressed: ``bool``; whether the file is compressed
+    :return: ``str``; path
+    """
+
     assert action_type in PATHS, 'Unrecognized action_type %s' % action_type
     assert path_type in PATHS[action_type], 'Unrecognized path_type %s for action_type %s' % (path_type, action_type)
     path = PATHS[action_type][path_type]
@@ -125,6 +214,16 @@ def get_path(output_dir, path_type, action_type, action_id, compressed=True):
 
 
 def get_mtime(output_dir, action_type, action_id, compressed=True):
+    """
+    Get the modification time of a file
+
+    :param output_dir: ``str``; output directory
+    :param action_type: ``str``; action type
+    :param action_id: ``str``; action ID
+    :param compressed: ``bool``; whether the file is compressed
+    :return: ``float``; modification time
+    """
+
     path = get_path(
         output_dir,
         'output',
@@ -140,6 +239,13 @@ def get_mtime(output_dir, action_type, action_id, compressed=True):
 
 
 def get_max_mtime(*mtimes):
+    """
+    Get the maximum modification time from a list of modification times
+
+    :param mtimes: ``list`` of ``float``; modification times
+    :return: ``float``; maximum modification time
+    """
+
     mtimes = [x for x in mtimes if x is not None]
     if mtimes:
         return max(mtimes)
@@ -148,6 +254,13 @@ def get_max_mtime(*mtimes):
 
 
 def validate_action_sequence(action_sequence):
+    """
+    Validate an action sequence
+
+    :param action_sequence: ``list`` of ``dict``; action sequence
+    :return: ``None``
+    """
+
     n = len(action_sequence)
     for a, action in enumerate(action_sequence):
         action_type = action['type']
@@ -194,6 +307,14 @@ def validate_action_sequence(action_sequence):
 
 
 def get_action(action_type, action_sequence):
+    """
+    Get an action from an action sequence
+
+    :param action_type: ``str``; action type
+    :param action_sequence: ``list`` of ``dict``; action sequence
+    :return: ``dict``; action
+    """
+
     for action in action_sequence:
         if action['type'] == action_type:
             return action
@@ -201,6 +322,15 @@ def get_action(action_type, action_sequence):
 
 
 def get_action_attr(action_type, action_sequence, action_attr):
+    """
+    Get an attribute of an action from an action sequence
+
+    :param action_type: ``str``; action type
+    :param action_sequence: ``list`` of ``dict``; action sequence
+    :param action_attr: ``str``; action attribute
+    :return: ``object``; action attribute
+    """
+
     action = get_action(action_type, action_sequence)
     if action is None:
         return None
@@ -208,6 +338,14 @@ def get_action_attr(action_type, action_sequence, action_attr):
 
 
 def is_stale(target_mtime, dep_mtime):
+    """
+    Check if a target is stale relative to a dependency
+
+    :param target_mtime: ``float``; target modification time
+    :param dep_mtime: ``float``; dependency modification time
+    :return: ``bool``; whether the target is stale
+    """
+
     return target_mtime and dep_mtime and target_mtime < dep_mtime
 
 
@@ -216,6 +354,15 @@ def check_deps(
         action_sequence,
         compressed=True
 ):
+    """
+    Check dependencies for a given action sequence
+
+    :param output_dir: ``str``; output directory
+    :param action_sequence: ``list`` of ``dict``; action sequence
+    :param compressed: ``bool``; whether the file is compressed
+    :return: ``float``; modification time, ``bool``; whether the file exists
+    """
+
     if not len(action_sequence):
         return None, False
     action = action_sequence[-1]  # Iterate from end
@@ -250,6 +397,13 @@ def check_deps(
 
 
 def get_overwrite(overwrite):
+    """
+    Get the overwrite settings for all actions in a pipeline
+
+    :param overwrite: ``object``; overwrite setting
+    :return: ``dict``; overwrite settings
+    """
+
     if isinstance(overwrite, dict):
         return overwrite
 

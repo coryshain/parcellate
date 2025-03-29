@@ -1,0 +1,21 @@
+name: parcellate
+channels:
+  - defaults
+dependencies:
+  - pip
+  - python
+  - tk
+  - pip:
+    - fast-poibin
+    - h5py
+    - matplotlib
+    - nibabel
+    - nilearn
+    - numpy
+    - pandas
+    - pillow
+    - pymatreader
+    - pyyaml
+    - scikit-learn
+    - scipy
+    - seaborn
