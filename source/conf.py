@@ -1,5 +1,5 @@
 import sys
-os
+import os
 
 # Configuration file for the Sphinx documentation builder.
 #
