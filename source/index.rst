@@ -22,7 +22,6 @@ the command-line usage (documented in README.md) will be sufficient.
    :caption: Contents:
 
     parcellate
-    parcellate.bin
 
 
 Indices
