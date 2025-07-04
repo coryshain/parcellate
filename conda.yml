@@ -11,6 +11,7 @@ dependencies:
     - matplotlib
     - nibabel
     - nilearn
+    - git+https://github.com/nipy/nitransforms.git@master
     - numpy
     - pandas
     - pillow

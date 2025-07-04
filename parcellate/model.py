@@ -912,7 +912,7 @@ def evaluate(
         for path in os.listdir(labeling_dir):
             if path.startswith(reference_atlas) and path.endswith(suffix):
                 atlas_name = path[:-len(suffix)]
-                atlas_name = re.sub('_sub\d+$', '', atlas_name)
+                atlas_name = re.sub(f'_sub\d+$', '', atlas_name)
                 if atlas_name == reference_atlas:
                     trim = len(suffix)
                     name = path[:-trim]
