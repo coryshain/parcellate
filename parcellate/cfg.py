@@ -31,6 +31,10 @@ def get_kwargs(cfg, action_type, action_id):
     if action_id is not None and action_type in cfg:
         kwargs = copy.deepcopy(cfg[action_type][action_id])
         kwargs.update({'%s_id' % ACTION_VERB_TO_NOUN[action_type]: action_id})
+        if 'xfm_path' in cfg and action_type in ('sample', 'label', 'evaluate') and 'xfm_path' not in kwargs:
+            kwargs['xfm_path'] = cfg['xfm_path']
+        if 'mask_path' in cfg and action_type in ('sample', 'align', 'label', 'evaluate') and 'mask_path' not in kwargs:
+            kwargs['mask_path'] = cfg['mask_path']
     else:
         kwargs = None
 

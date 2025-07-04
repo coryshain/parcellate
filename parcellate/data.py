@@ -8,6 +8,7 @@ except ImportError:
 from parcellate import resources
 import numpy as np
 from scipy import signal, optimize
+import nitransforms as nt
 from nilearn import image, masking
 
 from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, ALL_REFERENCE, join, get_suffix, stderr
@@ -119,7 +120,7 @@ def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE, threshold=N
     return img
 
 
-def get_atlas(atlas, fwhm=None, threshold=None):
+def get_atlas(atlas, fwhm=None, threshold=None, resampling_target_nii=None, xfm_path=None):
     """
     Load an atlas from a path or a dictionary containing a path and a value.
 
@@ -128,6 +129,11 @@ def get_atlas(atlas, fwhm=None, threshold=None):
     :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
     :param threshold: ``float`` or ``None``; threshold value for binarizing the image. If ``None``, no thresholding is
         applied.
+    :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
+        no resampling is applied.
+    :param xfm_path: ``str`` or ``None``; if the parcellation is not in MNI space, path to
+        transformation from MNI to the parcellation space (e.g., native).
+        If ``None``, parcellation is assumed to be in MNI space.
     :return: ``str``, ``str``, ``nibabel.Nifti1Image``; atlas name, atlas path, atlas Nifti image
     """
 
@@ -159,6 +165,18 @@ def get_atlas(atlas, fwhm=None, threshold=None):
         val = get_nii(val, fwhm=fwhm, threshold=threshold)
     assert 'Nifti1Image' in type(val).__name__, \
         'Atlas must be either a string path or a Nifti-like image class. Got type %s.' % type(val)
+
+    if xfm_path is not None:
+        assert resampling_target_nii is not None, \
+            'If xfm_path is provided, resampling_target_nii must also be provided.'
+        xfm = nt.manip.load(xfm_path)
+        val = nt.resampling.apply(
+            xfm,
+            val,
+            resampling_target_nii,
+        )
+    elif resampling_target_nii is not None:
+        val = resample_to(val, resampling_target_nii)
 
     return name, path, val
 
@@ -229,6 +247,10 @@ def align_samples(
     if n is None:
         n = n_samples
     i = 0
+    if prealign:
+        if indent is not None:
+            stderr('Pre-aligning samples...\n')
+            indent += 1
     for i_cum in range(n):
         if indent is not None:
             stderr('\r%sAlignment %d/%d' % (' ' * (indent * 2), i_cum + 1, n))
@@ -282,6 +304,9 @@ def align_samples(
 
     parcellation = parcellation / C
 
+    if prealign:
+        if indent is not None:
+            indent -= 1
     stderr('\n')
 
     if prealign:
@@ -334,7 +359,7 @@ def resample_to(nii, template):
     """
 
     nii = image.math_img('nii * (1 + 1e-6)', nii=nii)  # Hack to force conversion to float
-    return image.resample_to_img(nii, template)
+    return image.resample_to_img(nii, template, copy_header=True, force_resample=True)
 
 
 class Data:
@@ -346,7 +371,8 @@ class Data:
             self,
             nii_ref_path,
             fwhm=None,
-            resampling_target_nii=None
+            resampling_target_nii=None,
+            mask_path=None
     ):
         """
         Initialize a Data object.
@@ -355,16 +381,19 @@ class Data:
         :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
         :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
             no resampling is applied.
+        :param mask_path: ``str`` or ``None``; path to GM mask image. If ``None``, compute the mask from the reference.
         """
 
         self.nii_ref_path = nii_ref_path
+        self.mask_path = mask_path
         self.fwhm = fwhm
         self.nii_ref = get_nii(self.nii_ref_path, fwhm=self.fwhm)
         if resampling_target_nii is not None:
             self.nii_ref = resample_to(self.nii_ref, resampling_target_nii)
         self.nii_ref_shape = self.nii_ref.shape[:3]
+        self.mask_nii = None
         self.mask = None
-        self.set_mask_from_nii(None)
+        self.set_mask_from_nii(self.mask_path)
 
     @property
     def v(self):
@@ -385,10 +414,12 @@ class Data:
         """
 
         if mask_path is None:
-            mask = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
+            mask_nii = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
         else:
-            mask = get_nii(mask_path, fwhm=self.fwhm)
-        mask = image.get_data(mask) > 0.5
+            mask_nii = get_nii(mask_path, fwhm=self.fwhm)
+        mask_nii = resample_to(mask_nii, self.nii_ref)
+        self.mask_nii = mask_nii
+        mask = image.get_data(mask_nii) > 0.5
         self.mask = mask
 
     def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
@@ -511,7 +542,7 @@ class InputData(Data):
         :param fwhm: ``float`` or ``None``; full-width half-maximum for smoothing. If ``None``, no smoothing is applied.
         :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
             no resampling is applied.
-        :param mask_path: ``str`` or ``None``; path to mask image. If ``None``, compute the mask from the reference.
+        :param mask_path: ``str`` or ``None``; path to GM mask image. If ``None``, compute the mask from the reference.
         :param detrend: ``bool``; whether to detrend the data.
         :param standardize: ``bool``; whether to standardize the data.
         :param envelope: ``bool``; whether to use the envelope of the data.
@@ -531,7 +562,7 @@ class InputData(Data):
         nii_ref_path = functional_paths[0]
         if isinstance(resampling_target_nii, str):
             resampling_target_nii = image.smooth_img(resampling_target_nii, None)
-        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii)
+        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii, mask_path=mask_path)
 
         # Load all data and aggregate the mask
         _functionals = []
@@ -654,6 +685,8 @@ class AtlasData(Data):
             fwhm=None,
             network_threshold=None,
             resampling_target_nii=None,
+            xfm_path=None,
+            mask_path=None,
             compress_outputs=True
     ):
         """
@@ -666,6 +699,10 @@ class AtlasData(Data):
             thresholding is applied.
         :param resampling_target_nii: ``nibabel.Nifti1Image`` or ``None``; template image for resampling. If ``None``,
             no resampling is applied.
+        :param xfm_path: ``str`` or ``None``; if the parcellation is not in MNI space, path to
+            transformation from MNI to the parcellation space (e.g., native).
+            If ``None``, parcellation is assumed to be in MNI space.
+        :param mask_path: ``str`` or ``None``; path to GM mask image. If ``None``, compute the mask from the reference.
         :param compress_outputs: ``bool``; whether to compress the outputs.
         """
 
@@ -701,10 +738,12 @@ class AtlasData(Data):
             if isinstance(reference_atlas, str) and isinstance(atlases, dict):
                 reference_atlas = {reference_atlas: atlases[reference_atlas]}
             reference_atlas, reference_atlas_path, nii = get_atlas(
-                reference_atlas, fwhm=fwhm, threshold=network_threshold
+                reference_atlas,
+                fwhm=fwhm,
+                threshold=network_threshold,
+                resampling_target_nii=resampling_target_nii,
+                xfm_path=xfm_path
             )
-            if resampling_target_nii is not None:
-                nii = resample_to(nii, resampling_target_nii)
             if nii_ref_path is None:
                 nii_ref_path = reference_atlas_path
             _atlas_names.append(reference_atlas)
@@ -713,7 +752,7 @@ class AtlasData(Data):
             nii_ref_path = resampling_target_nii_path
         atlases = _atlases
 
-        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii)
+        super().__init__(nii_ref_path, fwhm=fwhm, resampling_target_nii=resampling_target_nii, mask_path=mask_path)
 
         # Perform any post-processing and save reference/evaluation images
         for key in atlases:

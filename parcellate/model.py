@@ -11,6 +11,7 @@ from sklearn.decomposition import PCA, FastICA
 from sklearn.metrics import mutual_info_score, normalized_mutual_info_score, adjusted_rand_score
 # from sica.base import StabilizedICA
 from nilearn import image, masking, maskers, datasets
+import nitransforms as nt
 from fast_poibin import PoiBin
 
 from parcellate.cfg import *
@@ -31,6 +32,7 @@ def sample(
         n_networks=50,
         fwhm=None,
         sample_id=None,
+        xfm_path=None,
         mask_path=None,
         detrend=True,
         standardize=True,
@@ -45,6 +47,7 @@ def sample(
         n_components_ica=None,
         cluster=True,
         target_affine=None,
+        downsample_to=None,
         use_connectivity_profile=True,
         use_connectivity_to_regions=True,
         binarize_connectivity=True,
@@ -64,6 +67,10 @@ def sample(
     :param fwhm: ``float`` or ``None``; Full-width at half-maximum for spatial smoothing. If ``None``, no smoothing is
         applied.
     :param sample_id: ``str``; Sample ID
+    :param xfm_path: ``str`` or ``None``; if the parcellation is not in MNI space, path to
+        transformation from MNI to the parcellation space (e.g., native), which will be applied to atlases if
+        applicable (e.g., Schaeffer et al 18 atlases if `use_connectivity_to_regions` is `True`).
+        If ``None``, parcellation is assumed to be in MNI space.
     :param mask_path: ``str`` or ``None``; Path to mask image. If ``None``, a mask will be computed from the first
         functional image.
     :param detrend: ``bool``; Whether to detrend the timecourses
@@ -84,6 +91,9 @@ def sample(
     :param cluster: ``bool``; Whether to cluster the timecourses
     :param target_affine: ``list`` or ``None``; Target affine for spatial resampling. If ``None``, no resampling is
         applied.
+    :param downsample_to: ``int`` or ``None``; If given, downsample the columns of the connectivity matrix to this
+        voxel size (in mm). If ``None``, no downsampling is applied. Ignored if ``use_connectivity_to_regions`` is
+        ``True``.
     :param use_connectivity_profile: ``bool``; Whether to use the connectivity profile. If ``False``, the raw
         timecourses are used.
     :param use_connectivity_to_regions: ``bool``; Whether to use the connectivity to regions. If ``False``, the
@@ -127,6 +137,7 @@ def sample(
             n_networks=n_networks,
             fwhm=fwhm,
             sample_id=sample_id,
+            xfm_path=xfm_path,
             mask_path=mask_path,
             detrend=detrend,
             standardize=standardize,
@@ -195,9 +206,13 @@ def sample(
             stderr('%sSpatial resampling' % (' ' * (indent * 2)))
             t1 = time.time()
             X_img = input_data.unflatten(X * (1 + 1e-6))  # Hack to force conversion to float
-            X_img = image.resample_img(X_img, target_affine=np.diag(np.array(target_affine)))
+            X_img = image.resample_img(
+                X_img, target_affine=np.diag(np.array(target_affine)), copy_header=True, force_resample=True
+            )
             X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6))
-            X_mask = image.resample_img(X_mask, target_affine=np.diag(target_affine))
+            X_mask = image.resample_img(
+                X_mask, target_affine=np.diag(target_affine), copy_header=True, force_resample=True
+            )
             X_mask = image.get_data(X_mask) > 0.5
             X = image.get_data(X_img)[X_mask]
             v = X.shape[0]
@@ -231,8 +246,40 @@ def sample(
                 X_mask_img = image.new_img_like(X_img, X_mask > 0.5)
                 anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
                 atlas_filename = anat_atlas.maps
-                masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename, mask_img=X_mask_img)
+                atlas_nii = image.load_img(atlas_filename)
+                atlas_nii = image.new_img_like(atlas_nii, image.get_data(atlas_nii).astype(np.uint16))
+                if xfm_path is not None:
+                    xfm = nt.manip.load(xfm_path)
+                    labels = np.unique(image.get_data(atlas_nii))
+                    atlas_nii = image.new_img_like(
+                        atlas_nii,
+                        (image.get_data(atlas_nii)[..., None] == labels[None, None, None, ...]).astype(np.uint16)
+                    )
+                    atlas_nii = nt.resampling.apply(
+                        xfm,
+                        atlas_nii,
+                        input_data.nii_ref,
+                    )
+                    atlas_nii = image.new_img_like(
+                        atlas_nii,
+                        np.argmax(image.get_data(atlas_nii), axis=-1).astype(np.uint16)
+                    )
+                masker = maskers.NiftiLabelsMasker(labels_img=atlas_nii, mask_img=X_mask_img)
                 B = standardize_array(masker.fit_transform(B_img).T)
+                stderr(' (%0.2fs)\n' % (time.time() - t1))
+            elif downsample_to is not None:
+                stderr('%sDownsampling columns of connectivity matrix to %d mm' % (' ' * (indent * 2), downsample_to))
+                t1 = time.time()
+                B = input_data.unflatten(X * (1 + 1e-6))  # Hack to force conversion to float
+                B = image.resample_img(
+                    B, target_affine=np.diag(np.array([downsample_to] * 3)), copy_header=True, force_resample=True
+                )
+                mask_ = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6))
+                mask_ = image.resample_img(
+                    mask_, target_affine=np.diag(np.array([downsample_to] * 3)), copy_header=True, force_resample=True
+                )
+                mask_ = image.get_data(mask_) > 0.5
+                B = standardize_array(image.get_data(B)[mask_])
                 stderr(' (%0.2fs)\n' % (time.time() - t1))
             else:
                 B = A
@@ -308,7 +355,9 @@ def sample(
 
         if target_affine is not None:
             samples = input_data.unflatten(samples, mask=X_mask, nii_ref=X_img)
-            samples = image.resample_to_img(samples, input_data.nii_ref, interpolation='nearest')
+            samples = image.resample_to_img(
+                samples, input_data.nii_ref, interpolation='nearest', copy_header=True, force_resample=True
+            )
             samples = input_data.flatten(samples)
         samples_all.append(samples)
         scores_all.append(scores)
@@ -327,6 +376,7 @@ def align(
         output_dir,
         alignment_id=None,
         sample_id=None,
+        mask_path=None,
         n_alignments=None,
         top_k=None,
         sort_by_mi=False,
@@ -345,6 +395,8 @@ def align(
     :param output_dir: ``str``; Output directory
     :param alignment_id: ``str``; Alignment ID
     :param sample_id: ``str``; Sample ID
+    :param mask_path: ``str`` or ``None``; Path to mask image. If ``None``, a mask will be computed from the first
+        functional image.
     :param n_alignments: ``int`` or ``None``; Number of alignments to perform. If ``None``, use the number of samples.
     :param top_k: ``int`` or ``None``; Number of samples to retain. If ``None``, use all samples.
     :param sort_by_mi: ``bool``; Whether to sort samples by mutual information
@@ -380,6 +432,7 @@ def align(
         kwargs = dict(
             alignment_id=alignment_id,
             sample_id=sample_id,
+            mask_path=mask_path,
             n_alignments=n_alignments,
             top_k=top_k,
             sort_by_mi=sort_by_mi,
@@ -398,7 +451,8 @@ def align(
     assert os.path.exists(sample_path), 'Sample file %s not found' % sample_path
 
     data = Data(
-        nii_ref_path=sample_path
+        nii_ref_path=sample_path,
+        mask_path=mask_path
     )
     sample_nii = data.nii_ref
     if image.get_data(sample_nii).dtype in (np.uint8, np.uint16):
@@ -474,6 +528,8 @@ def label(
         labeling_id=None,
         alignment_id=None,
         sample_id=None,
+        xfm_path=None,
+        mask_path=None,
         average_first=True,
         scoring_method='corr',
         atlas_threshold=None,
@@ -494,6 +550,10 @@ def label(
     :param labeling_id: ``str``; Labeling ID
     :param alignment_id: ``str``; Alignment ID
     :param sample_id: ``str``; Sample ID
+    :param xfm_path: ``str`` or ``None``; if the parcellation is not in MNI space, path to
+        transformation from MNI to the parcellation space (e.g., native), which will be applied to atlases.
+        If ``None``, parcellation is assumed to be in MNI space.
+    :param mask_path: ``str`` or ``None``; path to GM mask image. If ``None``, compute the mask in MNI space.
     :param average_first: ``bool``; Whether to average the samples before labeling
     :param scoring_method: ``str``; Scoring method for labeling
     :param atlas_threshold: ``float`` or ``None``; Threshold for binarizing the atlas. If ``None``, no binarization is
@@ -533,6 +593,8 @@ def label(
             labeling_id=labeling_id,
             alignment_id=alignment_id,
             sample_id=sample_id,
+            xfm_path=xfm_path,
+            mask_path=mask_path,
             average_first=average_first,
             scoring_method=scoring_method,
             atlas_threshold=atlas_threshold,
@@ -561,7 +623,9 @@ def label(
     reference_data = AtlasData(
         atlases=reference_atlases,
         resampling_target_nii=input_nii,
-        compress_outputs=compress_outputs
+        compress_outputs=compress_outputs,
+        xfm_path=xfm_path,
+        mask_path=mask_path
     )
     reference_atlas_names = reference_data.atlas_names
     reference_atlases = reference_data.atlases
@@ -731,6 +795,9 @@ def evaluate(
         evaluation_map=None,
         evaluation_id=None,
         labeling_id=None,
+        xfm_path=None,
+        transform_evaluation_atlases=False,
+        mask_path=None,
         network_threshold=None,
         compress_outputs=True,
         dump_kwargs=True,
@@ -747,6 +814,14 @@ def evaluate(
         all evaluations will be performed on each network.
     :param evaluation_id: ``str``; Evaluation ID
     :param labeling_id: ``str``; Labeling ID
+    :param xfm_path: ``str`` or ``None``; if the parcellation is not in MNI space, path to
+        transformation from MNI to the parcellation space (e.g., native), which will be applied to atlases.
+        If ``None``, parcellation is assumed to be in MNI space.
+    :param transform_evaluation_atlases: ``bool``; Whether to transform the evaluation atlases from MNI space to
+        the parcellation space. Ignored unless `xfm` is provided. Defaults to ``False``, i.e., assumes that the
+        evaluation atlases (subject-specific statmaps) are estimated in the same space as the parcellation. Only use
+        ``True`` if the evaluation atlases are estimated in MNI space.
+    :param mask_path: ``str`` or ``None``; path to GM mask image. If ``None``, compute the mask in MNI space.
     :param network_threshold: ``float`` or ``None``; Threshold for binarizing the networks. If ``None``, no
         binarization is applied.
     :param compress_outputs: ``bool``; Whether to compress the output files
@@ -779,6 +854,9 @@ def evaluate(
             evaluation_map=evaluation_map,
             evaluation_id=evaluation_id,
             labeling_id=labeling_id,
+            xfm_path=xfm_path,
+            transform_evaluation_atlases=transform_evaluation_atlases,
+            mask_path=mask_path,
             network_threshold=network_threshold,
             compress_outputs=compress_outputs,
         )
@@ -853,14 +931,20 @@ def evaluate(
     reference_data = AtlasData(
         atlases=reference_atlases,
         resampling_target_nii=resampling_target_nii,
-        compress_outputs=compress_outputs
+        compress_outputs=compress_outputs,
+        xfm_path=xfm_path,
+        mask_path=mask_path
     )
     reference_atlases = reference_data.atlases
-    evaluation_data = AtlasData(
+    evaluation_kwargs = dict(
         atlases=evaluation_atlases,
         resampling_target_nii=resampling_target_nii,
-        compress_outputs=compress_outputs
+        compress_outputs=compress_outputs,
+        mask_path=mask_path
     )
+    if xfm_path is not None and transform_evaluation_atlases:
+        evaluation_kwargs['xfm_path'] = xfm_path
+    evaluation_data = AtlasData(**evaluation_kwargs)
     evaluation_atlases = evaluation_data.atlases
     evaluation_data.save_atlases(evaluation_dir, prefix=EVALUATION_ATLAS_PREFIX)
     for x in candidates:
@@ -1410,7 +1494,7 @@ def parcellate(
 
                     labeling_dir = get_path(output_dir, 'subdir', 'label', labeling_id)
                     for filename in os.listdir(labeling_dir):
-                        if filename.endswith(suffix) or (not results_copied and filename == PATHS['label']['evaluation']):
+                        if filename.endswith(suffix) or (not results_copied and filename == PATHS['label']['output']):
                             shutil.copy(join(labeling_dir, filename), join(parcellation_dir, filename))
                 else:
                     stderr('%sParcellation exists. Skipping. To re-parcellate, run with overwrite=True.\n' %
