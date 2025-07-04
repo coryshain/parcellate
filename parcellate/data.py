@@ -390,6 +390,8 @@ class Data:
         self.nii_ref = get_nii(self.nii_ref_path, fwhm=self.fwhm)
         if resampling_target_nii is not None:
             self.nii_ref = resample_to(self.nii_ref, resampling_target_nii)
+        else:
+            self.resampling_target_nii = self.nii_ref
         self.nii_ref_shape = self.nii_ref.shape[:3]
         self.mask_nii = None
         self.mask = None
@@ -573,8 +575,7 @@ class InputData(Data):
             except OSError as e:
                 stderr('Error loading image %s: %s.\n\n File may be corrupted. Skipping.\n' % (functional_path, e))
                 continue
-            if resampling_target_nii is not None:
-                functional = resample_to(functional, resampling_target_nii)
+            functional = resample_to(functional, self.resampling_target_nii)
             data = image.get_data(functional)
             if len(data.shape) > 3:
                 __mask = (data.std(axis=-1) > 0) & \
