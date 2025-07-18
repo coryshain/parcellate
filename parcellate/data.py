@@ -9,7 +9,7 @@ from parcellate import resources
 import numpy as np
 from scipy import signal, optimize
 import nitransforms as nt
-from nilearn import image, masking
+from nilearn import image, maskers, masking
 
 from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, ALL_REFERENCE, join, get_suffix, stderr
 
@@ -406,7 +406,7 @@ class Data:
 
         return self.mask.sum()
 
-    def set_mask_from_nii(self, mask_path):
+    def set_mask_from_nii(self, mask_path, fwhm=1, target_affine=None):
         """
         Set the mask from a Nifti image.
 
@@ -419,9 +419,16 @@ class Data:
             mask_nii = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
         else:
             mask_nii = get_nii(mask_path, fwhm=self.fwhm)
-        mask_nii = resample_to(mask_nii, self.nii_ref)
+            mask_nii = resample_to(mask_nii, self.nii_ref)
+            mask_nii = image.new_img_like(mask_nii, image.get_data(mask_nii).astype(np.float32))
+            if fwhm:
+                mask_nii = image.smooth_img(mask_nii, fwhm=fwhm)
+            if target_affine is not None:
+                mask_nii = image.resample_img(mask_nii, target_affine=target_affine, interpolation='linear')
+        mask_nii = image.math_img('x > 0', x=mask_nii)
         self.mask_nii = mask_nii
-        mask = image.get_data(mask_nii) > 0.5
+
+        mask = image.get_data(mask_nii).astype(bool)
         self.mask = mask
 
     def get_bandpass_filter(self, tr=None, lower=None, upper=None, order=5):
