@@ -406,12 +406,14 @@ class Data:
 
         return self.mask.sum()
 
-    def set_mask_from_nii(self, mask_path, fwhm=1, target_affine=None):
+    def set_mask_from_nii(self, mask_path, fwhm=1):
         """
         Set the mask from a Nifti image.
 
         :param mask_path: ``str`` or ``None``; path to mask image. If ``None``, compute the mask from the reference
             image.
+        :param fwhm: ``float``; full-width half-maximum for smoothing of user-provided mask.
+            If ``None``, no smoothing is applied.
         :return: ``None``
         """
 
@@ -423,8 +425,6 @@ class Data:
             mask_nii = image.new_img_like(mask_nii, image.get_data(mask_nii).astype(np.float32))
             if fwhm:
                 mask_nii = image.smooth_img(mask_nii, fwhm=fwhm)
-            if target_affine is not None:
-                mask_nii = image.resample_img(mask_nii, target_affine=target_affine, interpolation='linear')
         mask_nii = image.math_img('x > 0', x=mask_nii)
         self.mask_nii = mask_nii
 
