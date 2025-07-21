@@ -130,6 +130,9 @@ def sample(
             init_size=INIT_SIZE
         )
 
+    if n_samples is None:
+        n_samples = 0
+
     if dump_kwargs:
         kwargs = dict(
             output_dir=output_dir,
@@ -220,7 +223,7 @@ def sample(
         if n_components_pca:
             n_components = n_components_pca
             if n_components == 'auto':
-                n_components = n_networks - 1
+                n_components = n_networks
             stderr('%sPCA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
             t1 = time.time()
             n_components = min(n_components, t)
@@ -230,7 +233,7 @@ def sample(
         if n_components_ica:
             n_components = n_components_ica
             if n_components == 'auto':
-                n_components = n_networks - 1
+                n_components = n_networks
             n_components = min(n_components, X.shape[-1])
             stderr('%sICA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
             t1 = time.time()
@@ -246,7 +249,7 @@ def sample(
                 X_mask_img = image.new_img_like(X_img, X_mask > 0.5)
                 anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
                 atlas_filename = anat_atlas.maps
-                atlas_nii = image.load_img(atlas_filename)
+                atlas_nii = image.smooth_img(atlas_filename, None)
                 atlas_nii = image.new_img_like(atlas_nii, image.get_data(atlas_nii).astype(np.uint16))
                 if xfm_path is not None:
                     xfm = nt.manip.load(xfm_path)
@@ -297,7 +300,7 @@ def sample(
                 if n_components_pca:
                     n_components = n_components_pca
                     if n_components == 'auto':
-                        n_components = n_networks - 1
+                        n_components = n_networks
                     stderr('%sPCA transforming (n components = %s)' % (' ' * (indent * 2), n_components))
                     t1 = time.time()
                     n_components = min(n_components, t)
@@ -307,51 +310,67 @@ def sample(
                 if n_components_ica:
                     n_components = n_components_ica
                     if n_components == 'auto':
-                        n_components = n_networks - 1
+                        n_components = n_networks
                     n_components = min(n_components, X.shape[-1])
                     stderr('%sICA transforming (n components = %s)\n' % (' ' * (indent * 2), n_components))
                     t1 = time.time()
                     m = FastICA(n_components=n_components, whiten='unit-variance')
                     X = m.fit_transform(X)
                     stderr(' (%0.2fs)\n' % (time.time() - t1))
-        stderr('%sDrawing samples\n' % (' ' * (indent * 2)))
-        indent += 1
-        samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
-        for j in range(n_samples):
-            if len(timecourses) > 1:
-                suffix = ' for run %d/%d' % (i + 1, n_runs)
-            else:
-                suffix = ''
-            if n_samples > 1:
-                stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
-            if cluster:
-                m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
-                _sample = m.fit_predict(X)
-                _score = m.inertia_
-                samples[:, j] = _sample
-            else:
-                X_ = X
-                n_components = n_networks
-                m = FastICA(n_components=n_components, whiten='unit-variance')
-                X = m.fit_transform(X_)
-                # Minmax normalize
-                _sample = X[..., :n_networks]
-                _sample = np.clip(_sample, 0, np.inf)
-                _sample = _sample / _sample.max(axis=0, keepdims=True)
-                _score = 0
-                if j == 0:
-                    samples = _sample
+        if n_samples:
+            stderr('%sDrawing samples\n' % (' ' * (indent * 2)))
+            indent += 1
+            samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
+            for j in range(n_samples):
+                if len(timecourses) > 1:
+                    suffix = ' for run %d/%d' % (i + 1, n_runs)
                 else:
-                    R = np.dot(standardize_array(samples, axis=0).T, standardize_array(_sample, axis=0))
-                    ix_r, ix_c = optimize.linear_sum_assignment(R, maximize=True)
-                    _sample = _sample[:, ix_c]
-                    samples = (samples * j + _sample) / (j + 1)
+                    suffix = ''
+                if n_samples > 1:
+                    stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
+                if cluster:
+                    m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
+                    _sample = m.fit_predict(X)
+                    _score = m.inertia_
+                    samples[:, j] = _sample
+                else:
+                    X_ = X
+                    n_components = n_networks
+                    m = FastICA(n_components=n_components, whiten='unit-variance')
+                    X = m.fit_transform(X_)
+                    # Minmax normalize
+                    _sample = X[..., :n_networks]
+                    _sample = np.clip(_sample, 0, np.inf)
+                    _sample = _sample / _sample.max(axis=0, keepdims=True)
+                    _score = 0
+                    if j == 0:
+                        samples = _sample
+                    else:
+                        R = np.dot(standardize_array(samples, axis=0).T, standardize_array(_sample, axis=0))
+                        ix_r, ix_c = optimize.linear_sum_assignment(R, maximize=True)
+                        _sample = _sample[:, ix_c]
+                        samples = (samples * j + _sample) / (j + 1)
 
-            scores[j] = _score
+                scores[j] = _score
 
-        if n_samples > 1:
-            stderr('\n')
-        indent -= 1
+            if n_samples > 1:
+                stderr('\n')
+            indent -= 1
+        else:
+            assert n_components_pca or n_components_ica, 'Must use PCA or ICA if not sampling'
+            assert X.shape == (v, n_networks), 'X must have shape (%s, %s) if not sampling. ' \
+                                               'Got shape %s. Check to make sure that there is ' \
+                                               'at least one matrix decomposition (PCA or ICA) and that the final ' \
+                                               'decomposition has n_components equal to n_networks.' % \
+                                               (v, n_networks, str(X.shape))
+
+            # Assume a network covers < half the mask volume, flip sign accordingly
+            X = np.where(np.median(X, axis=0, keepdims=True) > 0, -X, X)
+            # Clip and normalize (scale is arbitrary)
+            uq = np.quantile(X, 0.99, axis=0, keepdims=True)
+            X = np.clip(X, 0, uq) / uq
+            samples = X.astype(np.float32)
+            scores = np.zeros((1,))
 
         if target_affine is not None:
             samples = input_data.unflatten(samples, mask=X_mask, nii_ref=X_img)
@@ -510,6 +529,8 @@ def align(
 
         parcellation = align_samples(**f_kwargs)
     else:
+        stderr('%sSamples are already continuous, likely due to being a matrix decomposition. '
+               'Skipping alignment...\n' % (' ' * (indent * 2)))
         parcellation = data.flatten(sample_nii).T
 
     if minmax_normalize:
