@@ -62,7 +62,7 @@ if __name__ == '__main__':
         parcellation_id
     )
 
-    output_dir = cfg.get('output_dir', None)
+    output_dir = cfg.get('output_dir', 'parcellate_results')
     compress_outputs = cfg.get('compress_outputs', True)
 
     assert output_dir is not None, '``output_dir`` must be provided in cfg. Terminating.'

@@ -6,6 +6,9 @@ pyyaml
 fast-poibin
 h5py
 nilearn
+nitransforms
+pillow
+pymatreader
 scikit-learn
 scipy
 seaborn
