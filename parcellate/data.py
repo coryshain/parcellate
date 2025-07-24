@@ -406,7 +406,7 @@ class Data:
 
         return self.mask.sum()
 
-    def set_mask_from_nii(self, mask_path, fwhm=1):
+    def set_mask_from_nii(self, mask_path, fwhm=2):
         """
         Set the mask from a Nifti image.
 
