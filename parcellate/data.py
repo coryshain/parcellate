@@ -611,7 +611,6 @@ class InputData(Data):
         # Perform any post-processing
         for i, functional in enumerate(functionals):
             functional = self.flatten(functional)
-            print(functional.shape)
             if envelope:
                 functional = np.abs(signal.hilbert(functional, axis=-1))
             # self.bandpass() is a no-op if no bandpassing parameters are set
