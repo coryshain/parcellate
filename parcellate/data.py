@@ -8,7 +8,7 @@ except ImportError:
 from parcellate import resources
 import numpy as np
 from scipy import signal, optimize
-import nitransforms as nt
+from nitransforms import resampling, manip
 from nilearn import image, maskers, masking
 
 from parcellate.util import REFERENCE_ATLAS_PREFIX, EVALUATION_ATLAS_PREFIX, ALL_REFERENCE, join, get_suffix, stderr
@@ -169,8 +169,8 @@ def get_atlas(atlas, fwhm=None, threshold=None, resampling_target_nii=None, xfm_
     if xfm_path is not None:
         assert resampling_target_nii is not None, \
             'If xfm_path is provided, resampling_target_nii must also be provided.'
-        xfm = nt.manip.load(xfm_path)
-        val = nt.resampling.apply(
+        xfm = manip.load(xfm_path)
+        val = resampling.apply(
             xfm,
             val,
             resampling_target_nii,
@@ -611,6 +611,7 @@ class InputData(Data):
         # Perform any post-processing
         for i, functional in enumerate(functionals):
             functional = self.flatten(functional)
+            print(functional.shape)
             if envelope:
                 functional = np.abs(signal.hilbert(functional, axis=-1))
             # self.bandpass() is a no-op if no bandpassing parameters are set
