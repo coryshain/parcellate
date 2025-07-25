@@ -186,6 +186,8 @@ def sample(
     df.to_csv(metadata_path, index=False)
     stderr(' (%0.2fs)\n' % (time.time() - t1))
 
+    stderr('%sN voxels: %d\n' % (' ' * ((indent + 1) * 2), v))
+
     n_runs = input_data.n_runs
     samples_all = []
     scores_all = []
