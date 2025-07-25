@@ -418,6 +418,8 @@ class Data:
         """
 
         if mask_path is None:
+            mask_nii = image.new_img_like(self.nii_ref, np.ones(self.nii_ref.shape[:3]).astype(bool))
+        elif mask_path == 'mni':
             mask_nii = masking.compute_brain_mask(self.nii_ref, connected=False, opening=False, mask_type='gm')
         else:
             mask_nii = get_nii(mask_path, fwhm=self.fwhm)
