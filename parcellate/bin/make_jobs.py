@@ -22,7 +22,7 @@ if __name__ == '__main__':
     ''')
     argparser.add_argument('paths', nargs='+', help='Path(s) to config file(s).')
     argparser.add_argument('-p', '--partition', nargs='+', help='Partition(s) over which to predict/evaluate')
-    argparser.add_argument('-t', '--time', type=int, default=24, help='Maximum number of hours to train models')
+    argparser.add_argument('-t', '--time', type=int, default=4, help='Maximum number of hours to train models')
     argparser.add_argument('-n', '--n_cores', type=int, default=1, help='Number of cores to request')
     argparser.add_argument('-m', '--memory', type=int, default=8, help='Number of GB of memory to request')
     argparser.add_argument('-P', '--slurm_partition', default=None, help='Value for SLURM --partition setting, if applicable')
