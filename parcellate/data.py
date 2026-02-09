@@ -71,7 +71,7 @@ def get_nii(path, fwhm=None, add_to_cache=True, nii_cache=NII_CACHE, threshold=N
     if threshold is not None:
         data = image.get_data(img)
         data = binarize_array(data, threshold=threshold)
-        img = image.new_img_like(img, data)
+        img = image.new_img_like(img, data, copy_header=False)
     return img
 
 
@@ -317,7 +317,7 @@ class Data:
         shape = tuple(nii_ref_shape) + tuple(arr.shape[1:])
         out = np.zeros(shape, dtype=arr.dtype)
         out[mask] = arr
-        nii = image.new_img_like(nii_ref, out)
+        nii = image.new_img_like(nii_ref, out, copy_header=False)
 
         return nii
 
@@ -364,7 +364,7 @@ class InputData(Data):
                          np.all(np.isfinite(data), axis=-1)  # Mask all voxels with NaNs or with no variance
             else:  # Not a timeseries, or a single TR, don't reduce along time axis
                 __mask = np.isfinite(data)
-                functional = image.new_img_like(functional, data[..., None])
+                functional = image.new_img_like(functional, data[..., None], copy_header=False)
             if __mask.sum() == 0:
                 stderr('No valid voxels (finite-valued, sd > 0) found in image %s. Skipping.\n' % functional_path)
                 continue
@@ -421,7 +421,7 @@ class InputData(Data):
         if compress_outputs is None:
             compress_outputs = self.compress_outputs
         suffix = get_suffix(compress_outputs)
-        mask = image.new_img_like(self.nii_ref, self.mask)
+        mask = image.new_img_like(self.nii_ref, self.mask, copy_header=False)
         mask.to_filename(join(output_dir, 'mask%s' % suffix))
 
 

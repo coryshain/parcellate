@@ -10,6 +10,7 @@ base = """#!/bin/bash
 #
 #SBATCH --job-name=%s
 #SBATCH --output="%s-%%N-%%j.out"
+#SBATCH --requeue
 #SBATCH --time=%d:00:00
 #SBATCH --mem=%dgb
 #SBATCH --ntasks=%d

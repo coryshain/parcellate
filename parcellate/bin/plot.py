@@ -204,7 +204,7 @@ def plot_atlases(
                     thresh = clip_p
                 if thresh is not None:
                     data = np.where(np.logical_and(np.isfinite(data), data < thresh), 0, data)
-                    img = image.new_img_like(img, data)
+                    img = image.new_img_like(img, data, copy_header=False)
                     img.to_filename(path)
                 data = image.get_data(img)
                 min_by_path[path] = np.nanmin(data)
@@ -781,7 +781,7 @@ def plot_group_atlases(
             for atlas_name in atlases[parcellation_id]:
                 atlas = atlases[parcellation_id][atlas_name]
                 atlas /= len(cfg_paths)
-                atlas = image.new_img_like(atlas_ref, atlas)
+                atlas = image.new_img_like(atlas_ref, atlas, copy_header=False)
                 output_path = join(tmp_dir, '%s_%s.nii.gz' % (parcellation_id, atlas_name))
                 if parcellation_id not in atlas_paths:
                     atlas_paths[parcellation_id] = {}

@@ -49,6 +49,7 @@ def sample(
         use_connectivity_to_regions=True,
         binarize_connectivity=True,
         transform_connectivity=False,
+        template_matching=False,
         clustering_kwargs=None,
         compress_outputs=True,
         dump_kwargs=True,
@@ -67,6 +68,10 @@ def sample(
     indent += 1
 
     assert isinstance(output_dir, str), 'output_dir must be provided'
+    assert not template_matching or n_networks == 15, 'Template-matching is only supported for the 15-network Du et al reference'
+    assert not template_matching or n_samples == 1, 'Template-matching only allows one sample'
+    assert not template_matching or not transform_connectivity, 'Template-matching does not support transform_connectivity'
+    assert not template_matching or use_connectivity_profile, 'Template-matching requires use_connectivity_profile'
 
     sample_dir = get_path(output_dir, 'subdir', 'sample', sample_id)
     if not os.path.exists(sample_dir):
@@ -103,6 +108,7 @@ def sample(
             use_connectivity_to_regions=use_connectivity_to_regions,
             binarize_connectivity=binarize_connectivity,
             transform_connectivity=transform_connectivity,
+            template_matching=template_matching,
             clustering_kwargs=clustering_kwargs,
             compress_outputs=compress_outputs
         )
@@ -154,7 +160,7 @@ def sample(
             t1 = time.time()
             X_img = input_data.unflatten(X * (1 + 1e-6))  # Hack to force conversion to float
             X_img = image.resample_img(X_img, target_affine=np.diag(np.array(target_affine)))
-            X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6))
+            X_mask = image.new_img_like(input_data.nii_ref, input_data.mask * (1 + 1e-6), copy_header=False)
             X_mask = image.resample_img(X_mask, target_affine=np.diag(target_affine))
             X_mask = image.get_data(X_mask) > 0.5
             X = image.get_data(X_img)[X_mask]
@@ -186,7 +192,7 @@ def sample(
                 stderr('%sRetrieving connectivity atlas' % (' ' * (indent * 2)))
                 t1 = time.time()
                 B_img = input_data.unflatten(X, mask=X_mask, nii_ref=X_img)
-                X_mask_img = image.new_img_like(X_img, X_mask > 0.5)
+                X_mask_img = image.new_img_like(X_img, X_mask > 0.5, copy_header=False)
                 anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
                 atlas_filename = anat_atlas.maps
                 masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename, mask_img=X_mask_img)
@@ -225,6 +231,45 @@ def sample(
                     m = FastICA(n_components=n_components, whiten='unit-variance')
                     X = m.fit_transform(X)
                     stderr(' (%0.2fs)\n' % (time.time() - t1))
+
+        if template_matching:
+            reference_atlases = [
+                'LANG',
+                'FPN_A',
+                'FPN_B',
+                'DN_A',
+                'DN_B',
+                'CG_OP',
+                'SAL_PMN',
+                'dATN_A',
+                'dATN_B',
+                'AUD',
+                'PM_PPr',
+                'SMOT_A',
+                'SMOT_B',
+                'VIS_C',
+                'VIS_P',
+            ]
+            reference_data = AtlasData(
+                atlases=reference_atlases,
+                resampling_target_nii=X_img,
+                compress_outputs=compress_outputs
+            )
+            if use_connectivity_to_regions:
+                anat_atlas = datasets.fetch_atlas_schaefer_2018(n_rois=1000)
+                atlas_filename = anat_atlas.maps
+                reference_data_ = []
+                for atlas in reference_atlases:
+                    atlas_img = reference_data.unflatten(reference_data.atlases[atlas])
+                    atlas_mask_img = image.new_img_like(atlas_img, X_mask > 0.5, copy_header=False)
+                    masker = maskers.NiftiLabelsMasker(labels_img=atlas_filename, mask_img=atlas_mask_img)
+                    atlas = standardize_array(masker.fit_transform(atlas_img).T)
+                    reference_data_.append(atlas)
+                reference_data = reference_data_
+            else:
+                reference_data = reference_data.atlases
+            reference_data = np.stack(reference_data, axis=1)
+
         stderr('%sDrawing samples\n' % (' ' * (indent * 2)))
         indent += 1
         samples = np.zeros((v, n_samples), dtype=dtype)  # Shape: <n_voxels, n_samples>
@@ -235,7 +280,11 @@ def sample(
                 suffix = ''
             if n_samples > 1:
                 stderr('\r%sSample %d/%d%s' % (' ' * (indent * 2), j + 1, n_samples, suffix))
-            if cluster:
+            if template_matching:
+                _sample = (X @ reference_data).argmax(1).astype(np.uint8)
+                samples[:, j] = _sample
+                _score = 1  # Dummy
+            elif cluster:
                 m = MiniBatchKMeans(n_clusters=n_networks, **clustering_kwargs)
                 _sample = m.fit_predict(X)
                 _score = m.inertia_
@@ -745,7 +794,7 @@ def evaluate(
                     if network_threshold:
                         data = image.get_data(candidates[reference_atlas][name])
                         data = binarize_array(data, threshold=network_threshold)
-                        candidates[reference_atlas][name] = image.new_img_like(candidates[reference_atlas][name], data)
+                        candidates[reference_atlas][name] = image.new_img_like(candidates[reference_atlas][name], data, copy_header=False)
                     if resampling_target_nii is None:
                         resampling_target_nii = candidates[reference_atlas][name]
 
