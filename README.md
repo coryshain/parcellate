@@ -1,5 +1,9 @@
 # parcellate
 
+*Note*: This is the main branch of the `parcellate` repository. To use the version of this 
+repository used to generate the results in Shain & Fedorenko (under review), first run
+`git checkout langlocfc`.
+
 This codebase provides a command-line interface for functional brain parcellation of volumetric
 fMRI data. An analysis is specified with a YAML configuration file (including paths to functional
 data and evaluation task maps, if desired), which is passed as input to command-line utilities
